@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef } from "react";
+import { useNavigate } from "react-router-dom";
+
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const DAY_SHORT = ["M", "T", "W", "TH", "F", "S", "SU"];
@@ -17,6 +19,7 @@ const SUBJECT_COLORS = [
 const API = "http://localhost:3000/api";
 
 export default function ClassScheduler() {
+  const navigate = useNavigate();
   const [subjects, setSubjects] = useState([]);
   const [instructors, setInstructors] = useState([]);
   const [schedule, setSchedule] = useState({});
@@ -26,10 +29,13 @@ export default function ClassScheduler() {
   const [hoveredCell, setHoveredCell] = useState(null);
   const [toast, setToast] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [selectedType, setSelectedType] = useState("LEC");
+  const [newSubject, setNewSubject] = useState("");
+  const [newInstructor, setNewInstructor] = useState("");
+  const [section, setSection] = useState("");
   const subjectColors = useRef({});
   let colorIdx = useRef(0);
 
-  // Load data from database on startup
   useEffect(() => {
     fetchSubjects();
     fetchInstructors();
@@ -65,8 +71,10 @@ export default function ClassScheduler() {
         const key = `${dayIdx}-${timeIdx}`;
         scheduleMap[key] = {
           id: entry.id,
-          subject: subjects.find(s => s.id === entry.subject_id) || { id: entry.subject_id, code: `SUB${entry.subject_id}`, title: entry.subject_title || "Subject" },
-          instructor: instructors.find(i => i.id === entry.instructor_id) || { id: entry.instructor_id, name: entry.instructor_name || "Instructor" },
+          subject: { id: entry.subject_id, title: entry.subject_title || "Subject" },
+          instructor: { id: entry.instructor_id, fullname: entry.instructor_name || "Instructor" },
+          type: entry.type,
+          section: entry.section,
           day: dayIdx,
           time: timeIdx,
         };
@@ -98,8 +106,12 @@ export default function ClassScheduler() {
     const hour24 = isPM && hour !== 12 ? hour + 12 : (!isPM && hour === 12 ? 0 : hour);
     return `${String(hour24).padStart(2, '0')}:00:00`;
   };
-
+  
   const handleCellClick = async (dayIdx, timeIdx) => {
+    if (!section.trim()) {
+    showToast("Please enter a section name first!", "warn");
+    return;
+    }
     if (!selectedSubject || !selectedInstructor) {
       showToast("Select a subject and instructor first!", "warn");
       return;
@@ -117,7 +129,8 @@ export default function ClassScheduler() {
           subject_id: selectedSubject.id,
           instructor_id: selectedInstructor.id,
           room_id: 1,
-          type: "LEC",
+          type: selectedType,
+          section: section,
           day: DAYS[dayIdx],
           time: timeToString(timeIdx)
         })
@@ -129,6 +142,8 @@ export default function ClassScheduler() {
           id: data.id,
           subject: selectedSubject,
           instructor: selectedInstructor,
+          type: selectedType,
+          section: section,
           day: dayIdx,
           time: timeIdx,
         }
@@ -157,12 +172,72 @@ export default function ClassScheduler() {
 
   const handleDragStart = (type, item) => setDragItem({ type, item });
 
+  const handleAddSubject = async () => {
+    if (!newSubject.trim()) return;
+    const res = await fetch(`${API}/subjects`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: newSubject.trim() })
+    });
+    const data = await res.json();
+    setSubjects(prev => [...prev, data]);
+    setNewSubject("");
+    showToast("Subject added!", "success");
+  };
+
+  const handleDeleteSubject = async (id) => {
+    await fetch(`${API}/subjects/${id}`, { method: "DELETE" });
+    setSubjects(prev => prev.filter(s => s.id !== id));
+    showToast("Subject deleted!", "success");
+  };
+
+  const handleAddInstructor = async () => {
+    if (!newInstructor.trim()) return;
+    const res = await fetch(`${API}/instructors`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fullname: newInstructor.trim() })
+    });
+    const data = await res.json();
+    setInstructors(prev => [...prev, data]);
+    setNewInstructor("");
+    showToast("Instructor added!", "success");
+  };
+
+  const handleDeleteInstructor = async (id) => {
+    await fetch(`${API}/instructors/${id}`, { method: "DELETE" });
+    setInstructors(prev => prev.filter(i => i.id !== id));
+    showToast("Instructor deleted!", "success");
+  };
+
+  const handleCreateSchedule = async () => {
+    if (!section.trim()) {
+      showToast("Please enter a section name first!", "warn");
+      return;
+    }
+    const scheduledItems = Object.values(schedule);
+    if (scheduledItems.length === 0) {
+      showToast("Please add subjects to the grid first!", "warn");
+      return;
+    }
+    showToast("Schedule created successfully! 🎉", "success");
+    setSchedule({});
+    setSection("");
+    setTimeout(() => {
+      navigate("/schedules");
+    }, 1500);
+  };
+
   const handleDrop = async (dayIdx, timeIdx) => {
     if (!dragItem) return;
+    if (!section.trim()) {
+    showToast("Please enter a section name first!", "warn");
+    setDragItem(null);
+    return;
+    }
     const key = getCellKey(dayIdx, timeIdx);
     const sub = dragItem.type === "subject" ? dragItem.item : selectedSubject;
     const ins = dragItem.type === "instructor" ? dragItem.item : selectedInstructor;
-
     if (!sub || !ins) {
       showToast("Select both subject and instructor!", "warn");
       setDragItem(null);
@@ -181,7 +256,8 @@ export default function ClassScheduler() {
           subject_id: sub.id,
           instructor_id: ins.id,
           room_id: 1,
-          type: "LEC",
+          type: selectedType,
+          section: section,
           day: DAYS[dayIdx],
           time: timeToString(timeIdx)
         })
@@ -189,7 +265,7 @@ export default function ClassScheduler() {
       const data = await res.json();
       setSchedule(prev => ({
         ...prev,
-        [key]: { id: data.id, subject: sub, instructor: ins, day: dayIdx, time: timeIdx }
+        [key]: { id: data.id, subject: sub, instructor: ins, type: selectedType, section: section, day: dayIdx, time: timeIdx }
       }));
       showToast(`Dropped ${sub.title}!`, "success");
     } catch (err) {
@@ -218,17 +294,49 @@ export default function ClassScheduler() {
       color: "#e2e8f0", padding: "24px", boxSizing: "border-box"
     }}>
       {/* Header */}
-      <div style={{ textAlign: "center", marginBottom: 28 }}>
+      <div style={{ textAlign: "center", marginBottom: 20 }}>
         <div style={{ fontSize: 11, letterSpacing: 6, color: "#94a3b8", textTransform: "uppercase", marginBottom: 6 }}>
           Academic Management System
         </div>
         <h1 style={{
-          margin: 0, fontSize: 32, fontWeight: 800,
+          margin: "0 0 16px", fontSize: 32, fontWeight: 800,
           background: "linear-gradient(90deg, #60a5fa, #a78bfa, #f472b6)",
           WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent"
         }}>
           Class Scheduler
         </h1>
+
+        {/* Section Input Bar */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12 }}>
+          <div style={{
+            display: "flex", alignItems: "center", gap: 10,
+            background: "rgba(255,255,255,0.05)",
+            border: "1px solid rgba(255,255,255,0.1)",
+            borderRadius: 12, padding: "10px 16px", width: 400
+          }}>
+            <span style={{ fontSize: 16 }}>🏫</span>
+            <input
+              placeholder="Enter section name (e.g. BSIT 2A)..."
+              value={section}
+              onChange={e => setSection(e.target.value)}
+              style={{
+                flex: 1, background: "transparent", border: "none",
+                color: "#e2e8f0", fontSize: 13, outline: "none",
+                fontFamily: "'Segoe UI', sans-serif"
+              }}
+            />
+            {section && (
+              <span style={{
+                fontSize: 10, fontWeight: 700, color: "#60a5fa",
+                background: "rgba(96,165,250,0.15)",
+                padding: "3px 8px", borderRadius: 20,
+                border: "1px solid rgba(96,165,250,0.3)"
+              }}>
+                {section}
+              </span>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Toast */}
@@ -308,6 +416,12 @@ export default function ClassScheduler() {
                               <div style={{ fontSize: 9, color: "#cbd5e1", lineHeight: 1.2, marginTop: 1 }}>
                                 {entry.instructor.fullname || entry.instructor.name}
                               </div>
+                              <div style={{
+                                fontSize: 8, fontWeight: 700, marginTop: 2,
+                                color: entry.type === "LAB" ? "#f472b6" : "#60a5fa"
+                              }}>
+                                {entry.type || "LEC"}
+                              </div>
                               <button
                                 onClick={(e) => { e.stopPropagation(); handleRemove(key); }}
                                 style={{
@@ -350,23 +464,44 @@ export default function ClassScheduler() {
             <div style={panelHeader("#3b82f6")}>
               <span>📚</span> Subjects
             </div>
-            <div style={{ padding: "8px 0" }}>
+            <div style={{ padding: "8px" }}>
+              <div style={{ display: "flex", gap: 4, marginBottom: 8 }}>
+                <input
+                  placeholder="Add subject..."
+                  value={newSubject}
+                  onChange={e => setNewSubject(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && handleAddSubject()}
+                  style={{
+                    flex: 1, padding: "6px 8px", borderRadius: 6,
+                    border: "1px solid rgba(255,255,255,0.1)",
+                    background: "rgba(255,255,255,0.05)",
+                    color: "#e2e8f0", fontSize: 11, outline: "none"
+                  }}
+                />
+                <button onClick={handleAddSubject} style={{
+                  padding: "6px 10px", borderRadius: 6, border: "none",
+                  background: "rgba(96,165,250,0.3)", color: "#60a5fa",
+                  cursor: "pointer", fontSize: 14, fontWeight: 700
+                }}>+</button>
+              </div>
               {subjects.map(s => (
-                <div
-                  key={s.id}
-                  draggable
+                <div key={s.id} draggable
                   onDragStart={() => { handleDragStart("subject", s); setSelectedSubject(s); }}
                   onClick={() => setSelectedSubject(s)}
                   style={{
-                    padding: "8px 12px", margin: "3px 8px", borderRadius: 8, cursor: "pointer",
+                    padding: "8px 12px", margin: "3px 0", borderRadius: 8, cursor: "pointer",
                     background: selectedSubject?.id === s.id ? `${getSubjectColor(s.id)}33` : "rgba(255,255,255,0.03)",
                     border: selectedSubject?.id === s.id ? `1.5px solid ${getSubjectColor(s.id)}88` : "1.5px solid transparent",
                     borderLeft: `4px solid ${getSubjectColor(s.id)}`, transition: "all 0.15s",
-                  }}
-                >
-                  <div style={{ fontSize: 11, fontWeight: 700, color: getSubjectColor(s.id) }}>
-                    {s.title}
-                  </div>
+                    display: "flex", alignItems: "center", justifyContent: "space-between"
+                  }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: getSubjectColor(s.id) }}>{s.title}</div>
+                  <button onClick={(e) => { e.stopPropagation(); handleDeleteSubject(s.id); }}
+                    style={{
+                      background: "rgba(239,68,68,0.2)", border: "none", color: "#fca5a5",
+                      borderRadius: 3, width: 16, height: 16, cursor: "pointer", fontSize: 9,
+                      display: "flex", alignItems: "center", justifyContent: "center", padding: 0
+                    }}>✕</button>
                 </div>
               ))}
             </div>
@@ -377,21 +512,44 @@ export default function ClassScheduler() {
             <div style={panelHeader("#8b5cf6")}>
               <span>👨‍🏫</span> Instructors
             </div>
-            <div style={{ padding: "8px 0" }}>
+            <div style={{ padding: "8px" }}>
+              <div style={{ display: "flex", gap: 4, marginBottom: 8 }}>
+                <input
+                  placeholder="Add instructor..."
+                  value={newInstructor}
+                  onChange={e => setNewInstructor(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && handleAddInstructor()}
+                  style={{
+                    flex: 1, padding: "6px 8px", borderRadius: 6,
+                    border: "1px solid rgba(255,255,255,0.1)",
+                    background: "rgba(255,255,255,0.05)",
+                    color: "#e2e8f0", fontSize: 11, outline: "none"
+                  }}
+                />
+                <button onClick={handleAddInstructor} style={{
+                  padding: "6px 10px", borderRadius: 6, border: "none",
+                  background: "rgba(139,92,246,0.3)", color: "#a78bfa",
+                  cursor: "pointer", fontSize: 14, fontWeight: 700
+                }}>+</button>
+              </div>
               {instructors.map(ins => (
-                <div
-                  key={ins.id}
-                  draggable
+                <div key={ins.id} draggable
                   onDragStart={() => { handleDragStart("instructor", ins); setSelectedInstructor(ins); }}
                   onClick={() => setSelectedInstructor(ins)}
                   style={{
-                    padding: "8px 12px", margin: "3px 8px", borderRadius: 8, cursor: "pointer",
+                    padding: "8px 12px", margin: "3px 0", borderRadius: 8, cursor: "pointer",
                     background: selectedInstructor?.id === ins.id ? "rgba(139,92,246,0.2)" : "rgba(255,255,255,0.03)",
                     border: selectedInstructor?.id === ins.id ? "1.5px solid rgba(139,92,246,0.6)" : "1.5px solid transparent",
                     borderLeft: "4px solid rgba(139,92,246,0.7)", transition: "all 0.15s",
-                  }}
-                >
+                    display: "flex", alignItems: "center", justifyContent: "space-between"
+                  }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: "#c4b5fd" }}>{ins.fullname}</div>
+                  <button onClick={(e) => { e.stopPropagation(); handleDeleteInstructor(ins.id); }}
+                    style={{
+                      background: "rgba(239,68,68,0.2)", border: "none", color: "#fca5a5",
+                      borderRadius: 3, width: 16, height: 16, cursor: "pointer", fontSize: 9,
+                      display: "flex", alignItems: "center", justifyContent: "center", padding: 0
+                    }}>✕</button>
                 </div>
               ))}
             </div>
@@ -415,13 +573,43 @@ export default function ClassScheduler() {
               </div>
             </div>
             {selectedSubject && selectedInstructor && (
-              <div style={{
-                marginTop: 10, padding: "6px 10px", borderRadius: 6,
-                background: "rgba(16,185,129,0.15)", border: "1px solid rgba(16,185,129,0.3)",
-                fontSize: 10, color: "#6ee7b7", textAlign: "center"
-              }}>
-                ✓ Ready to schedule
-              </div>
+              <>
+                <div style={{ marginTop: 10 }}>
+                  <div style={{ fontSize: 9, color: "#64748b", marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>
+                    Type
+                  </div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    {["LEC", "LAB"].map(t => (
+                      <button key={t} onClick={() => setSelectedType(t)} style={{
+                        flex: 1, padding: "6px 0", borderRadius: 6,
+                        cursor: "pointer", fontSize: 11, fontWeight: 700,
+                        background: selectedType === t ? t === "LEC" ? "rgba(96,165,250,0.3)" : "rgba(236,72,153,0.3)" : "rgba(255,255,255,0.05)",
+                        color: selectedType === t ? t === "LEC" ? "#60a5fa" : "#f472b6" : "#64748b",
+                        border: selectedType === t ? t === "LEC" ? "1px solid rgba(96,165,250,0.5)" : "1px solid rgba(236,72,153,0.5)" : "1px solid transparent",
+                        transition: "all 0.15s"
+                      }}>{t}</button>
+                    ))}
+                  </div>
+                </div>
+                <div style={{
+                  marginTop: 10, padding: "6px 10px", borderRadius: 6,
+                  background: "rgba(16,185,129,0.15)", border: "1px solid rgba(16,185,129,0.3)",
+                  fontSize: 10, color: "#6ee7b7", textAlign: "center"
+                }}>
+                  ✓ Ready to schedule
+                </div>
+                <button
+                  onClick={handleCreateSchedule}
+                  style={{
+                    width: "100%", marginTop: 10, padding: "10px", borderRadius: 8,
+                    border: "none", cursor: "pointer", fontSize: 12, fontWeight: 700,
+                    background: "linear-gradient(90deg, #3b82f6, #8b5cf6)",
+                    color: "white", transition: "all 0.2s"
+                  }}
+                >
+                  + Create Schedule
+                </button>
+              </>
             )}
           </div>
         </div>

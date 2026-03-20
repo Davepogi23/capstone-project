@@ -36,17 +36,19 @@ app.get('/api/schedules', (req, res) => {
     FROM class_schedule cs
     JOIN subjects s ON cs.subject_id = s.id
     JOIN instructors i ON cs.instructor_id = i.id
+    ORDER BY cs.section, cs.day, cs.time
   `).all()
   res.json(schedules)
 })
 
 // Save a schedule
+// Save a schedule
 app.post('/api/schedules', (req, res) => {
-  const { subject_id, instructor_id, room_id, type, day, time } = req.body
+  const { subject_id, instructor_id, room_id, type, day, time, section } = req.body
   const stmt = db.prepare(
-    'INSERT INTO class_schedule (subject_id, instructor_id, room_id, type, day, time) VALUES (?, ?, ?, ?, ?, ?)'
+    'INSERT INTO class_schedule (subject_id, instructor_id, room_id, type, day, time, section) VALUES (?, ?, ?, ?, ?, ?, ?)'
   )
-  const result = stmt.run(subject_id, instructor_id, room_id, type, day, time)
+  const result = stmt.run(subject_id, instructor_id, room_id, type, day, time, section)
   res.json({ id: result.lastInsertRowid })
 })
 
@@ -54,6 +56,59 @@ app.post('/api/schedules', (req, res) => {
 app.delete('/api/schedules/:id', (req, res) => {
   db.prepare('DELETE FROM class_schedule WHERE id = ?').run(req.params.id)
   res.json({ success: true })
+})
+
+// Add a subject
+app.post('/api/subjects', (req, res) => {
+  const { title } = req.body
+  const stmt = db.prepare('INSERT INTO subjects (title) VALUES (?)')
+  const result = stmt.run(title)
+  res.json({ id: result.lastInsertRowid, title })
+})
+
+// Delete a subject
+app.delete('/api/subjects/:id', (req, res) => {
+  db.prepare('DELETE FROM subjects WHERE id = ?').run(req.params.id)
+  res.json({ success: true })
+})
+
+// Add an instructor
+app.post('/api/instructors', (req, res) => {
+  const { fullname } = req.body
+  const stmt = db.prepare('INSERT INTO instructors (fullname) VALUES (?)')
+  const result = stmt.run(fullname)
+  res.json({ id: result.lastInsertRowid, fullname })
+})
+
+// Delete an instructor
+app.delete('/api/instructors/:id', (req, res) => {
+  db.prepare('DELETE FROM instructors WHERE id = ?').run(req.params.id)
+  res.json({ success: true })
+})
+
+// Login
+app.post('/api/login', (req, res) => {
+  const { username, password } = req.body
+  const user = db.prepare('SELECT * FROM users WHERE username = ? AND password = ?').get(username, password)
+  if (user) {
+    res.json({ success: true, username: user.username })
+  } else {
+    res.json({ success: false, message: 'Invalid username or password' })
+  }
+})
+
+// Get all unique sections
+app.get('/api/sections', (req, res) => {
+  const sections = db.prepare(`
+    SELECT DISTINCT section, 
+    MIN(created_at) as created_at,
+    COUNT(*) as total_subjects
+    FROM class_schedule 
+    WHERE section IS NOT NULL AND section != ''
+    GROUP BY section
+    ORDER BY created_at DESC
+  `).all()
+  res.json(sections)
 })
 
 app.listen(3000, () => {
