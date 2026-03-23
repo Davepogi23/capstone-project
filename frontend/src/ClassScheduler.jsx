@@ -32,8 +32,10 @@ export default function ClassScheduler() {
   const [selectedType, setSelectedType] = useState("LEC");
   const [newSubject, setNewSubject] = useState("");
   const [newInstructor, setNewInstructor] = useState("");
-  const [section, setSection] = useState("");
+  const [section, setSection] = useState(localStorage.getItem("draftSection") || "");
   const subjectColors = useRef({});
+  const [searchSubject, setSearchSubject] = useState("");
+  const [searchInstructor, setSearchInstructor] = useState("");
   let colorIdx = useRef(0);
 
   useEffect(() => {
@@ -55,7 +57,7 @@ export default function ClassScheduler() {
   };
 
   const fetchSchedules = async () => {
-    const res = await fetch(`${API}/schedules`);
+    const res = await fetch(`${API}/schedules/draft`);
     const data = await res.json();
     const scheduleMap = {};
     data.forEach(entry => {
@@ -130,7 +132,6 @@ export default function ClassScheduler() {
           instructor_id: selectedInstructor.id,
           room_id: 1,
           type: selectedType,
-          section: section,
           day: DAYS[dayIdx],
           time: timeToString(timeIdx)
         })
@@ -211,69 +212,118 @@ export default function ClassScheduler() {
   };
 
   const handleCreateSchedule = async () => {
-    if (!section.trim()) {
-      showToast("Please enter a section name first!", "warn");
-      return;
-    }
-    const scheduledItems = Object.values(schedule);
-    if (scheduledItems.length === 0) {
-      showToast("Please add subjects to the grid first!", "warn");
-      return;
-    }
+  if (!section.trim()) {
+    showToast("Please enter a section name first!", "warn");
+    return;
+  }
+  const scheduledItems = Object.values(schedule);
+  if (scheduledItems.length === 0) {
+    showToast("Please add subjects to the grid first!", "warn");
+    return;
+  }
+  try {
+    const ids = scheduledItems.map(item => item.id);
+    await fetch(`${API}/schedules/assign-section`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ section: section, ids })
+    });
     showToast("Schedule created successfully! 🎉", "success");
     setSchedule({});
     setSection("");
+    localStorage.removeItem("draftSection");
     setTimeout(() => {
       navigate("/schedules");
     }, 1500);
-  };
+  } catch (err) {
+    showToast("Failed to create schedule!", "error");
+  }
+};
 
-  const handleDrop = async (dayIdx, timeIdx) => {
-    if (!dragItem) return;
-    if (!section.trim()) {
+const handleClear = async () => {
+  if (!confirm("Clear everything? This will delete all unsaved schedules!")) return;
+  const draftItems = Object.values(schedule).filter(s => !s.section || s.section === "");
+  await Promise.all(draftItems.map(item =>
+    fetch(`${API}/schedules/${item.id}`, { method: "DELETE" })
+  ));
+  setSchedule({});
+  setSection("");
+  localStorage.removeItem("draftSection");
+  showToast("Cleared!", "success");
+};
+
+  const handleDrop = async (dayIdx, timeIdx, e) => {
+  if (!dragItem) return;
+  if (!section.trim()) {
     showToast("Please enter a section name first!", "warn");
     setDragItem(null);
     return;
-    }
-    const key = getCellKey(dayIdx, timeIdx);
-    const sub = dragItem.type === "subject" ? dragItem.item : selectedSubject;
-    const ins = dragItem.type === "instructor" ? dragItem.item : selectedInstructor;
-    if (!sub || !ins) {
-      showToast("Select both subject and instructor!", "warn");
-      setDragItem(null);
-      return;
-    }
-    if (schedule[key]) {
-      showToast("Cell already occupied!", "error");
-      setDragItem(null);
-      return;
-    }
-    try {
-      const res = await fetch(`${API}/schedules`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          subject_id: sub.id,
-          instructor_id: ins.id,
-          room_id: 1,
-          type: selectedType,
-          section: section,
-          day: DAYS[dayIdx],
-          time: timeToString(timeIdx)
-        })
-      });
-      const data = await res.json();
+  }
+  const key = getCellKey(dayIdx, timeIdx);
+  const isCopy = e?.ctrlKey || e?.metaKey;
+
+  let sub, ins, entryType;
+  if (dragItem.type === "scheduled") {
+    const originalEntry = schedule[dragItem.item.key];
+    sub = originalEntry?.subject;
+    ins = originalEntry?.instructor;
+    entryType = originalEntry?.type;
+  } else {
+    sub = dragItem.type === "subject" ? dragItem.item : selectedSubject;
+    ins = dragItem.type === "instructor" ? dragItem.item : selectedInstructor;
+    entryType = selectedType;
+  }
+
+  if (!sub || !ins) {
+    showToast("Select both subject and instructor!", "warn");
+    setDragItem(null);
+    return;
+  }
+  if (schedule[key]) {
+    showToast("Cell already occupied!", "error");
+    setDragItem(null);
+    return;
+  }
+  try {
+    const res = await fetch(`${API}/schedules`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        subject_id: sub.id,
+        instructor_id: ins.id,
+        room_id: 1,
+        type: entryType,
+        day: DAYS[dayIdx],
+        time: timeToString(timeIdx)
+      })
+    });
+    const data = await res.json();
+
+    if (!isCopy && dragItem.type === "scheduled") {
+      const oldEntry = schedule[dragItem.item.key];
+      if (oldEntry) {
+        await fetch(`${API}/schedules/${oldEntry.id}`, { method: "DELETE" });
+        setSchedule(prev => {
+          const n = { ...prev };
+          delete n[dragItem.item.key];
+          n[key] = { id: data.id, subject: sub, instructor: ins, type: entryType, section: section, day: dayIdx, time: timeIdx };
+          return n;
+        });
+        showToast(`Moved ${sub.title}!`, "success");
+      }
+    } else {
       setSchedule(prev => ({
         ...prev,
-        [key]: { id: data.id, subject: sub, instructor: ins, type: selectedType, section: section, day: dayIdx, time: timeIdx }
+        [key]: { id: data.id, subject: sub, instructor: ins, type: entryType, section: section, day: dayIdx, time: timeIdx }
       }));
-      showToast(`Dropped ${sub.title}!`, "success");
-    } catch (err) {
-      showToast("Failed to save!", "error");
+      showToast(isCopy ? `Copied ${sub.title}! 📋` : `Dropped ${sub.title}!`, "success");
     }
-    setDragItem(null);
-    setHoveredCell(null);
-  };
+  } catch (err) {
+    showToast("Failed to save!", "error");
+  }
+  setDragItem(null);
+  setHoveredCell(null);
+};
 
   if (loading) return (
     <div style={{
@@ -318,7 +368,7 @@ export default function ClassScheduler() {
             <input
               placeholder="Enter section name (e.g. BSIT 2A)..."
               value={section}
-              onChange={e => setSection(e.target.value)}
+              onChange={e => { setSection(e.target.value); localStorage.setItem("draftSection", e.target.value); }}
               style={{
                 flex: 1, background: "transparent", border: "none",
                 color: "#e2e8f0", fontSize: 13, outline: "none",
@@ -390,7 +440,7 @@ export default function ClassScheduler() {
                           onClick={() => !entry && handleCellClick(dIdx, tIdx)}
                           onDragOver={(e) => { e.preventDefault(); setHoveredCell(key); }}
                           onDragLeave={() => setHoveredCell(null)}
-                          onDrop={() => handleDrop(dIdx, tIdx)}
+                          onDrop={(e) => handleDrop(dIdx, tIdx, e)}
                           style={{
                             padding: 3, border: "1px solid rgba(255,255,255,0.05)",
                             height: 52, minWidth: 90,
@@ -464,95 +514,127 @@ export default function ClassScheduler() {
             <div style={panelHeader("#3b82f6")}>
               <span>📚</span> Subjects
             </div>
-            <div style={{ padding: "8px" }}>
-              <div style={{ display: "flex", gap: 4, marginBottom: 8 }}>
-                <input
-                  placeholder="Add subject..."
-                  value={newSubject}
-                  onChange={e => setNewSubject(e.target.value)}
-                  onKeyDown={e => e.key === "Enter" && handleAddSubject()}
-                  style={{
-                    flex: 1, padding: "6px 8px", borderRadius: 6,
-                    border: "1px solid rgba(255,255,255,0.1)",
-                    background: "rgba(255,255,255,0.05)",
-                    color: "#e2e8f0", fontSize: 11, outline: "none"
-                  }}
-                />
-                <button onClick={handleAddSubject} style={{
-                  padding: "6px 10px", borderRadius: 6, border: "none",
-                  background: "rgba(96,165,250,0.3)", color: "#60a5fa",
-                  cursor: "pointer", fontSize: 14, fontWeight: 700
-                }}>+</button>
-              </div>
-              {subjects.map(s => (
-                <div key={s.id} draggable
-                  onDragStart={() => { handleDragStart("subject", s); setSelectedSubject(s); }}
-                  onClick={() => setSelectedSubject(s)}
-                  style={{
-                    padding: "8px 12px", margin: "3px 0", borderRadius: 8, cursor: "pointer",
-                    background: selectedSubject?.id === s.id ? `${getSubjectColor(s.id)}33` : "rgba(255,255,255,0.03)",
-                    border: selectedSubject?.id === s.id ? `1.5px solid ${getSubjectColor(s.id)}88` : "1.5px solid transparent",
-                    borderLeft: `4px solid ${getSubjectColor(s.id)}`, transition: "all 0.15s",
-                    display: "flex", alignItems: "center", justifyContent: "space-between"
-                  }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: getSubjectColor(s.id) }}>{s.title}</div>
-                  <button onClick={(e) => { e.stopPropagation(); handleDeleteSubject(s.id); }}
+                <div style={{ padding: "8px" }}>
+                  <div style={{ display: "flex", gap: 4, marginBottom: 6 }}>
+                    <input
+                      placeholder="Add subject..."
+                      value={newSubject}
+                      onChange={e => setNewSubject(e.target.value)}
+                      onKeyDown={e => e.key === "Enter" && handleAddSubject()}
+                      style={{
+                        flex: 1, padding: "6px 8px", borderRadius: 6,
+                        border: "1px solid rgba(255,255,255,0.1)",
+                        background: "rgba(255,255,255,0.05)",
+                        color: "#e2e8f0", fontSize: 11, outline: "none"
+                      }}
+                    />
+                    <button onClick={handleAddSubject} style={{
+                      padding: "6px 10px", borderRadius: 6, border: "none",
+                      background: "rgba(96,165,250,0.3)", color: "#60a5fa",
+                      cursor: "pointer", fontSize: 14, fontWeight: 700
+                    }}>+</button>
+                  </div>
+                  <input
+                    placeholder="🔍 Search..."
+                    value={searchSubject}
+                    onChange={e => setSearchSubject(e.target.value)}
                     style={{
-                      background: "rgba(239,68,68,0.2)", border: "none", color: "#fca5a5",
-                      borderRadius: 3, width: 16, height: 16, cursor: "pointer", fontSize: 9,
-                      display: "flex", alignItems: "center", justifyContent: "center", padding: 0
-                    }}>✕</button>
+                      width: "100%", padding: "6px 8px", borderRadius: 6, marginBottom: 6,
+                      border: "1px solid rgba(255,255,255,0.08)",
+                      background: "rgba(255,255,255,0.03)",
+                      color: "#e2e8f0", fontSize: 11, outline: "none",
+                      boxSizing: "border-box"
+                    }}
+                  />
+                  <div style={{ maxHeight: 160, overflowY: "auto" }}>
+                    {subjects
+                      .filter(s => s.title.toLowerCase().includes(searchSubject.toLowerCase()))
+                      .map(s => (
+                        <div key={s.id} draggable
+                          onDragStart={() => { handleDragStart("subject", s); setSelectedSubject(s); }}
+                          onClick={() => setSelectedSubject(s)}
+                          style={{
+                            padding: "8px 12px", margin: "3px 0", borderRadius: 8, cursor: "pointer",
+                            background: selectedSubject?.id === s.id ? `${getSubjectColor(s.id)}33` : "rgba(255,255,255,0.03)",
+                            border: selectedSubject?.id === s.id ? `1.5px solid ${getSubjectColor(s.id)}88` : "1.5px solid transparent",
+                            borderLeft: `4px solid ${getSubjectColor(s.id)}`, transition: "all 0.15s",
+                            display: "flex", alignItems: "center", justifyContent: "space-between"
+                          }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: getSubjectColor(s.id) }}>{s.title}</div>
+                          <button onClick={(e) => { e.stopPropagation(); handleDeleteSubject(s.id); }}
+                            style={{
+                              background: "rgba(239,68,68,0.2)", border: "none", color: "#fca5a5",
+                              borderRadius: 3, width: 16, height: 16, cursor: "pointer", fontSize: 9,
+                              display: "flex", alignItems: "center", justifyContent: "center", padding: 0
+                            }}>✕</button>
+                        </div>
+                      ))}
+                  </div>
                 </div>
-              ))}
             </div>
-          </div>
 
           {/* Instructors Panel */}
           <div style={{ ...panelStyle }}>
             <div style={panelHeader("#8b5cf6")}>
               <span>👨‍🏫</span> Instructors
             </div>
-            <div style={{ padding: "8px" }}>
-              <div style={{ display: "flex", gap: 4, marginBottom: 8 }}>
-                <input
-                  placeholder="Add instructor..."
-                  value={newInstructor}
-                  onChange={e => setNewInstructor(e.target.value)}
-                  onKeyDown={e => e.key === "Enter" && handleAddInstructor()}
-                  style={{
-                    flex: 1, padding: "6px 8px", borderRadius: 6,
-                    border: "1px solid rgba(255,255,255,0.1)",
-                    background: "rgba(255,255,255,0.05)",
-                    color: "#e2e8f0", fontSize: 11, outline: "none"
-                  }}
-                />
-                <button onClick={handleAddInstructor} style={{
-                  padding: "6px 10px", borderRadius: 6, border: "none",
-                  background: "rgba(139,92,246,0.3)", color: "#a78bfa",
-                  cursor: "pointer", fontSize: 14, fontWeight: 700
-                }}>+</button>
-              </div>
-              {instructors.map(ins => (
-                <div key={ins.id} draggable
-                  onDragStart={() => { handleDragStart("instructor", ins); setSelectedInstructor(ins); }}
-                  onClick={() => setSelectedInstructor(ins)}
-                  style={{
-                    padding: "8px 12px", margin: "3px 0", borderRadius: 8, cursor: "pointer",
-                    background: selectedInstructor?.id === ins.id ? "rgba(139,92,246,0.2)" : "rgba(255,255,255,0.03)",
-                    border: selectedInstructor?.id === ins.id ? "1.5px solid rgba(139,92,246,0.6)" : "1.5px solid transparent",
-                    borderLeft: "4px solid rgba(139,92,246,0.7)", transition: "all 0.15s",
-                    display: "flex", alignItems: "center", justifyContent: "space-between"
-                  }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: "#c4b5fd" }}>{ins.fullname}</div>
-                  <button onClick={(e) => { e.stopPropagation(); handleDeleteInstructor(ins.id); }}
-                    style={{
-                      background: "rgba(239,68,68,0.2)", border: "none", color: "#fca5a5",
-                      borderRadius: 3, width: 16, height: 16, cursor: "pointer", fontSize: 9,
-                      display: "flex", alignItems: "center", justifyContent: "center", padding: 0
-                    }}>✕</button>
-                </div>
-              ))}
-            </div>
+                      <div style={{ padding: "8px" }}>
+                      <div style={{ display: "flex", gap: 4, marginBottom: 6 }}>
+                        <input
+                          placeholder="Add instructor..."
+                          value={newInstructor}
+                          onChange={e => setNewInstructor(e.target.value)}
+                          onKeyDown={e => e.key === "Enter" && handleAddInstructor()}
+                          style={{
+                            flex: 1, padding: "6px 8px", borderRadius: 6,
+                            border: "1px solid rgba(255,255,255,0.1)",
+                            background: "rgba(255,255,255,0.05)",
+                            color: "#e2e8f0", fontSize: 11, outline: "none"
+                          }}
+                        />
+                        <button onClick={handleAddInstructor} style={{
+                          padding: "6px 10px", borderRadius: 6, border: "none",
+                          background: "rgba(139,92,246,0.3)", color: "#a78bfa",
+                          cursor: "pointer", fontSize: 14, fontWeight: 700
+                        }}>+</button>
+                      </div>
+                      <input
+                        placeholder="🔍 Search..."
+                        value={searchInstructor}
+                        onChange={e => setSearchInstructor(e.target.value)}
+                        style={{
+                          width: "100%", padding: "6px 8px", borderRadius: 6, marginBottom: 6,
+                          border: "1px solid rgba(255,255,255,0.08)",
+                          background: "rgba(255,255,255,0.03)",
+                          color: "#e2e8f0", fontSize: 11, outline: "none",
+                          boxSizing: "border-box"
+                        }}
+                      />
+                      <div style={{ maxHeight: 160, overflowY: "auto" }}>
+                        {instructors
+                          .filter(i => i.fullname.toLowerCase().includes(searchInstructor.toLowerCase()))
+                          .map(ins => (
+                            <div key={ins.id} draggable
+                              onDragStart={() => { handleDragStart("instructor", ins); setSelectedInstructor(ins); }}
+                              onClick={() => setSelectedInstructor(ins)}
+                              style={{
+                                padding: "8px 12px", margin: "3px 0", borderRadius: 8, cursor: "pointer",
+                                background: selectedInstructor?.id === ins.id ? "rgba(139,92,246,0.2)" : "rgba(255,255,255,0.03)",
+                                border: selectedInstructor?.id === ins.id ? "1.5px solid rgba(139,92,246,0.6)" : "1.5px solid transparent",
+                                borderLeft: "4px solid rgba(139,92,246,0.7)", transition: "all 0.15s",
+                                display: "flex", alignItems: "center", justifyContent: "space-between"
+                              }}>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: "#c4b5fd" }}>{ins.fullname}</div>
+                              <button onClick={(e) => { e.stopPropagation(); handleDeleteInstructor(ins.id); }}
+                                style={{
+                                  background: "rgba(239,68,68,0.2)", border: "none", color: "#fca5a5",
+                                  borderRadius: 3, width: 16, height: 16, cursor: "pointer", fontSize: 9,
+                                  display: "flex", alignItems: "center", justifyContent: "center", padding: 0
+                                }}>✕</button>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
           </div>
 
           {/* Selection Status */}
@@ -572,7 +654,7 @@ export default function ClassScheduler() {
                 {selectedInstructor ? selectedInstructor.fullname : "None selected"}
               </div>
             </div>
-            {selectedSubject && selectedInstructor && (
+            {(selectedSubject && selectedInstructor) || Object.keys(schedule).length > 0 ? (
               <>
                 <div style={{ marginTop: 10 }}>
                   <div style={{ fontSize: 9, color: "#64748b", marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>
@@ -598,19 +680,33 @@ export default function ClassScheduler() {
                 }}>
                   ✓ Ready to schedule
                 </div>
-                <button
-                  onClick={handleCreateSchedule}
-                  style={{
-                    width: "100%", marginTop: 10, padding: "10px", borderRadius: 8,
-                    border: "none", cursor: "pointer", fontSize: 12, fontWeight: 700,
-                    background: "linear-gradient(90deg, #3b82f6, #8b5cf6)",
-                    color: "white", transition: "all 0.2s"
-                  }}
-                >
-                  + Create Schedule
-                </button>
+                <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
+                  <button
+                    onClick={handleClear}
+                    style={{
+                      flex: 1, padding: "10px", borderRadius: 8,
+                      border: "1px solid rgba(239,68,68,0.3)",
+                      background: "rgba(239,68,68,0.15)",
+                      color: "#fca5a5", fontSize: 12, fontWeight: 700,
+                      cursor: "pointer", transition: "all 0.2s"
+                    }}
+                  >
+                    🗑️ Clear
+                  </button>
+                  <button
+                    onClick={handleCreateSchedule}
+                    style={{
+                      flex: 2, padding: "10px", borderRadius: 8,
+                      border: "none", cursor: "pointer", fontSize: 12, fontWeight: 700,
+                      background: "linear-gradient(90deg, #3b82f6, #8b5cf6)",
+                      color: "white", transition: "all 0.2s"
+                    }}
+                  >
+                    + Create Schedule
+                  </button>
+                </div>
               </>
-            )}
+            ) : null}
           </div>
         </div>
       </div>

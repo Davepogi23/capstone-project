@@ -111,6 +111,30 @@ app.get('/api/sections', (req, res) => {
   res.json(sections)
 })
 
+// Get schedules without section (draft/working schedules)
+app.get('/api/schedules/draft', (req, res) => {
+  const schedules = db.prepare(`
+    SELECT 
+      cs.*,
+      s.title as subject_title,
+      i.fullname as instructor_name
+    FROM class_schedule cs
+    JOIN subjects s ON cs.subject_id = s.id
+    JOIN instructors i ON cs.instructor_id = i.id
+    WHERE cs.section IS NULL OR cs.section = ''
+    ORDER BY cs.day, cs.time
+  `).all()
+  res.json(schedules)
+})
+
+// Assign section to draft schedules
+app.put('/api/schedules/assign-section', (req, res) => {
+  const { section, ids } = req.body
+  const stmt = db.prepare('UPDATE class_schedule SET section = ? WHERE id = ?')
+  ids.forEach(id => stmt.run(section, id))
+  res.json({ success: true })
+})
+
 app.listen(3000, () => {
   console.log('Server running on http://localhost:3000')
 })

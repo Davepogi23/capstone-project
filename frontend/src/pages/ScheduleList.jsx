@@ -150,7 +150,7 @@ export default function ScheduleList() {
                           {sec.section}
                         </div>
                         <div style={{ fontSize: 11, color: "#64748b" }}>
-                          Created: {new Date(sec.created_at).toLocaleDateString()}
+                          Created: {new Date(sec.created_at + 'Z').toLocaleDateString('en-PH')} {new Date(sec.created_at + 'Z').toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit', hour12: true })}
                         </div>
                       </div>
                       <button
