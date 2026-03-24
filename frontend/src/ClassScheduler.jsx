@@ -41,16 +41,19 @@ export default function ClassScheduler() {
   const [lockChecked, setLockChecked] = useState(false);
   let colorIdx = useRef(0);
 
-  useEffect(() => {
-    fetchSubjects();
-    fetchInstructors();
-    fetchSchedules();
-    acquireLock();
+useEffect(() => {
+  fetchSubjects();
+  fetchInstructors();
+  fetchSchedules();
+  acquireLock();
 
-    return () => {
+  window.addEventListener('beforeunload', releaseLock);
+
+  return () => {
     releaseLock();
-    };
-  }, []);
+    window.removeEventListener('beforeunload', releaseLock);
+  };
+}, []);
 
   const fetchSubjects = async () => {
     const res = await fetch(`${API}/subjects`);
@@ -94,7 +97,7 @@ export default function ClassScheduler() {
     setLoading(false);
   };
 
-  const acquireLock = async () => {
+const acquireLock = async () => {
   const user = JSON.parse(localStorage.getItem("user"));
   const res = await fetch(`${API}/lock`, {
     method: "POST",
@@ -106,8 +109,28 @@ export default function ClassScheduler() {
     setIsLocked(false);
     setLockedBy("");
   } else {
-    setIsLocked(true);
-    setLockedBy(data.lockedBy);
+    // If the lock belongs to ME, release it and reacquire
+    if (data.lockedBy === user.username) {
+      await fetch(`${API}/lock`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: user.username })
+      });
+      // Try again
+      const res2 = await fetch(`${API}/lock`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: user.username })
+      });
+      const data2 = await res2.json();
+      if (data2.success) {
+        setIsLocked(false);
+        setLockedBy("");
+      }
+    } else {
+      setIsLocked(true);
+      setLockedBy(data.lockedBy);
+    }
   }
   setLockChecked(true);
 };
