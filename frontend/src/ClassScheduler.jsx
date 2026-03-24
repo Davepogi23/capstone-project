@@ -36,12 +36,20 @@ export default function ClassScheduler() {
   const subjectColors = useRef({});
   const [searchSubject, setSearchSubject] = useState("");
   const [searchInstructor, setSearchInstructor] = useState("");
+  const [isLocked, setIsLocked] = useState(false);
+  const [lockedBy, setLockedBy] = useState("");
+  const [lockChecked, setLockChecked] = useState(false);
   let colorIdx = useRef(0);
 
   useEffect(() => {
     fetchSubjects();
     fetchInstructors();
     fetchSchedules();
+    acquireLock();
+
+    return () => {
+    releaseLock();
+    };
   }, []);
 
   const fetchSubjects = async () => {
@@ -85,6 +93,33 @@ export default function ClassScheduler() {
     setSchedule(scheduleMap);
     setLoading(false);
   };
+
+  const acquireLock = async () => {
+  const user = JSON.parse(localStorage.getItem("user"));
+  const res = await fetch(`${API}/lock`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username: user.username })
+  });
+  const data = await res.json();
+  if (data.success) {
+    setIsLocked(false);
+    setLockedBy("");
+  } else {
+    setIsLocked(true);
+    setLockedBy(data.lockedBy);
+  }
+  setLockChecked(true);
+};
+
+const releaseLock = async () => {
+  const user = JSON.parse(localStorage.getItem("user"));
+  await fetch(`${API}/lock`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username: user.username })
+  });
+};
 
   const getSubjectColor = (subjectId) => {
     if (!subjectColors.current[subjectId]) {
@@ -401,6 +436,27 @@ const handleClear = async () => {
         </div>
       )}
 
+      {/* Lock Banner */}
+        {lockChecked && isLocked && (
+          <div style={{
+            position: "fixed", top: 0, left: 0, right: 0, zIndex: 998,
+            background: "rgba(239,68,68,0.95)",
+            padding: "14px 24px",
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 12,
+            boxShadow: "0 4px 20px rgba(0,0,0,0.4)"
+          }}>
+            <span style={{ fontSize: 20 }}>🔒</span>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "white" }}>
+                Scheduler is currently locked
+              </div>
+              <div style={{ fontSize: 12, color: "rgba(255,255,255,0.8)" }}>
+                <strong>{lockedBy}</strong> is currently editing. You can view but not make changes.
+              </div>
+            </div>
+          </div>
+        )}
+
       <div style={{ display: "flex", gap: 20, alignItems: "flex-start" }}>
         {/* SCHEDULE GRID */}
         <div style={{ flex: 1, overflowX: "auto" }}>
@@ -437,10 +493,10 @@ const handleClear = async () => {
                       return (
                         <td
                           key={dIdx}
-                          onClick={() => !entry && handleCellClick(dIdx, tIdx)}
+                          onClick={() => !entry && !isLocked && handleCellClick(dIdx, tIdx)}
                           onDragOver={(e) => { e.preventDefault(); setHoveredCell(key); }}
                           onDragLeave={() => setHoveredCell(null)}
-                          onDrop={(e) => handleDrop(dIdx, tIdx, e)}
+                          onDrop={(e) => !isLocked && handleDrop(dIdx, tIdx, e)}
                           style={{
                             padding: 3, border: "1px solid rgba(255,255,255,0.05)",
                             height: 52, minWidth: 90,
@@ -683,23 +739,28 @@ const handleClear = async () => {
                 <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
                   <button
                     onClick={handleClear}
+                    disabled={isLocked}
                     style={{
                       flex: 1, padding: "10px", borderRadius: 8,
                       border: "1px solid rgba(239,68,68,0.3)",
-                      background: "rgba(239,68,68,0.15)",
-                      color: "#fca5a5", fontSize: 12, fontWeight: 700,
-                      cursor: "pointer", transition: "all 0.2s"
+                      background: isLocked ? "rgba(255,255,255,0.05)" : "rgba(239,68,68,0.15)",
+                      color: isLocked ? "#475569" : "#fca5a5",
+                      fontSize: 12, fontWeight: 700,
+                      cursor: isLocked ? "not-allowed" : "pointer", transition: "all 0.2s"
                     }}
                   >
                     🗑️ Clear
                   </button>
                   <button
                     onClick={handleCreateSchedule}
+                    disabled={isLocked}
                     style={{
                       flex: 2, padding: "10px", borderRadius: 8,
-                      border: "none", cursor: "pointer", fontSize: 12, fontWeight: 700,
-                      background: "linear-gradient(90deg, #3b82f6, #8b5cf6)",
-                      color: "white", transition: "all 0.2s"
+                      border: "none",
+                      cursor: isLocked ? "not-allowed" : "pointer",
+                      fontSize: 12, fontWeight: 700,
+                      background: isLocked ? "rgba(255,255,255,0.05)" : "linear-gradient(90deg, #3b82f6, #8b5cf6)",
+                      color: isLocked ? "#475569" : "white", transition: "all 0.2s"
                     }}
                   >
                     + Create Schedule
