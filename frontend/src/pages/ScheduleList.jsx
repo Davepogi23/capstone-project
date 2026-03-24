@@ -1,5 +1,4 @@
 import { useState, useEffect } from "react";
-import Navbar from "../components/Navbar";
 
 const API = "http://localhost:3000/api";
 
@@ -16,7 +15,8 @@ const SUBJECT_COLORS = [
   "#F59E0B", "#EF4444", "#6366F1", "#84CC16"
 ];
 
-export default function ScheduleList() {
+export default function ScheduleList({ theme }) {
+  const isLight = theme === "light";
   const [sections, setSections] = useState([]);
   const [schedules, setSchedules] = useState([]);
   const [selectedSection, setSelectedSection] = useState(null);
@@ -92,14 +92,13 @@ export default function ScheduleList() {
 
   return (
     <div style={{
-      minHeight: "100vh",
-      background: "linear-gradient(135deg, #0f0c29, #302b63, #24243e)",
-      fontFamily: "'Segoe UI', sans-serif",
-      color: "#e2e8f0", display: "flex"
+        minHeight: "100vh",
+        background: isLight ? "#f1f5f9" : "linear-gradient(135deg, #0f0c29, #302b63, #24243e)",
+        fontFamily: "'Segoe UI', sans-serif",
+        color: isLight ? "#1e293b" : "#e2e8f0"
     }}>
-      <Navbar />
 
-      <div style={{ marginLeft: 220, flex: 1, padding: 32 }}>
+      <div style={{ marginLeft: 220, flex: 1, padding: 32, color: isLight ? "#1e293b" : "#e2e8f0" }}>
         {!selectedSection ? (
           <>
             {/* Sections List */}
@@ -135,11 +134,12 @@ export default function ScheduleList() {
                   <div
                     key={sec.section}
                     style={{
-                      background: "rgba(255,255,255,0.04)",
-                      border: "1px solid rgba(255,255,255,0.08)",
+                      background: isLight ? "white" : "rgba(255,255,255,0.04)",
+                      border: isLight ? "1px solid #e2e8f0" : "1px solid rgba(255,255,255,0.08)",
                       borderRadius: 16, padding: 20, cursor: "pointer",
                       transition: "all 0.2s",
-                      borderLeft: "4px solid #60a5fa"
+                      borderLeft: "4px solid #60a5fa",
+                      boxShadow: isLight ? "0 1px 3px rgba(0,0,0,0.08)" : "none"
                     }}
                     onMouseEnter={e => e.currentTarget.style.background = "rgba(96,165,250,0.08)"}
                     onMouseLeave={e => e.currentTarget.style.background = "rgba(255,255,255,0.04)"}
@@ -227,8 +227,9 @@ export default function ScheduleList() {
 
             {/* Schedule Grid */}
             <div className="print-area" style={{
-              background: "rgba(255,255,255,0.04)", borderRadius: 16,
-              border: "1px solid rgba(255,255,255,0.08)", overflow: "hidden"
+              background: isLight ? "white" : "rgba(255,255,255,0.04)", borderRadius: 16,
+              border: isLight ? "1px solid #e2e8f0" : "1px solid rgba(255,255,255,0.08)", overflow: "hidden",
+              boxShadow: isLight ? "0 1px 3px rgba(0,0,0,0.08)" : "none"
             }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>

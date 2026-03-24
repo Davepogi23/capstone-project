@@ -3,7 +3,8 @@ import { useNavigate } from "react-router-dom";
 
 const API = "http://localhost:3000/api";
 
-export default function Login() {
+export default function Login({ theme }) {
+  const isLight = theme === "light";
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -39,16 +40,16 @@ export default function Login() {
   return (
     <div style={{
       minHeight: "100vh",
-      background: "linear-gradient(135deg, #0f0c29, #302b63, #24243e)",
+      background: isLight ? "#f1f5f9" : "linear-gradient(135deg, #0f0c29, #302b63, #24243e)",
       display: "flex", alignItems: "center", justifyContent: "center",
       fontFamily: "'Segoe UI', sans-serif"
     }}>
       <div style={{
-        background: "rgba(255,255,255,0.05)",
-        border: "1px solid rgba(255,255,255,0.1)",
+        background: isLight ? "white" : "rgba(255,255,255,0.05)",
+        border: isLight ? "1px solid #e2e8f0" : "1px solid rgba(255,255,255,0.1)",
         borderRadius: 20, padding: 40, width: 360,
         backdropFilter: "blur(10px)",
-        boxShadow: "0 20px 60px rgba(0,0,0,0.4)"
+        boxShadow: isLight ? "0 4px 24px rgba(0,0,0,0.08)" : "0 20px 60px rgba(0,0,0,0.4)"
       }}>
         {/* Header */}
         <div style={{ textAlign: "center", marginBottom: 32 }}>
@@ -89,9 +90,9 @@ export default function Login() {
             placeholder="Enter username"
             style={{
               width: "100%", padding: "12px 14px", borderRadius: 10,
-              border: "1px solid rgba(255,255,255,0.1)",
-              background: "rgba(255,255,255,0.05)",
-              color: "#e2e8f0", fontSize: 14, outline: "none",
+              border: isLight ? "1px solid #e2e8f0" : "1px solid rgba(255,255,255,0.1)",
+              background: isLight ? "#f8fafc" : "rgba(255,255,255,0.05)",
+              color: isLight ? "#1e293b" : "#e2e8f0", fontSize: 14, outline: "none",
               boxSizing: "border-box"
             }}
           />
@@ -110,9 +111,9 @@ export default function Login() {
             placeholder="Enter password"
             style={{
               width: "100%", padding: "12px 14px", borderRadius: 10,
-              border: "1px solid rgba(255,255,255,0.1)",
-              background: "rgba(255,255,255,0.05)",
-              color: "#e2e8f0", fontSize: 14, outline: "none",
+              border: isLight ? "1px solid #e2e8f0" : "1px solid rgba(255,255,255,0.1)",
+              background: isLight ? "#f8fafc" : "rgba(255,255,255,0.05)",
+              color: isLight ? "#1e293b" : "#e2e8f0",
               boxSizing: "border-box"
             }}
           />

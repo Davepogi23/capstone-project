@@ -18,7 +18,8 @@ const SUBJECT_COLORS = [
 
 const API = "http://localhost:3000/api";
 
-export default function ClassScheduler() {
+export default function ClassScheduler({ theme }) {
+  const isLight = theme === "light";
   const navigate = useNavigate();
   const [subjects, setSubjects] = useState([]);
   const [instructors, setInstructors] = useState([]);
@@ -137,6 +138,7 @@ const acquireLock = async () => {
 
 const releaseLock = async () => {
   const user = JSON.parse(localStorage.getItem("user"));
+  if (!user) return;
   await fetch(`${API}/lock`, {
     method: "DELETE",
     headers: { "Content-Type": "application/json" },
@@ -397,9 +399,9 @@ const handleClear = async () => {
   return (
     <div style={{
       minHeight: "100vh",
-      background: "linear-gradient(135deg, #0f0c29, #302b63, #24243e)",
+      background: isLight ? "#f1f5f9" : "linear-gradient(135deg, #0f0c29, #302b63, #24243e)",
       fontFamily: "'Segoe UI', sans-serif",
-      color: "#e2e8f0", padding: "24px", boxSizing: "border-box"
+      color: isLight ? "#1e293b" : "#e2e8f0", padding: "24px", boxSizing: "border-box"
     }}>
       {/* Header */}
       <div style={{ textAlign: "center", marginBottom: 20 }}>
@@ -418,8 +420,8 @@ const handleClear = async () => {
         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12 }}>
           <div style={{
             display: "flex", alignItems: "center", gap: 10,
-            background: "rgba(255,255,255,0.05)",
-            border: "1px solid rgba(255,255,255,0.1)",
+            background: isLight ? "white" : "rgba(255,255,255,0.05)",
+            border: isLight ? "1px solid #e2e8f0" : "1px solid rgba(255,255,255,0.1)",
             borderRadius: 12, padding: "10px 16px", width: 400
           }}>
             <span style={{ fontSize: 16 }}>🏫</span>
@@ -429,7 +431,7 @@ const handleClear = async () => {
               onChange={e => { setSection(e.target.value); localStorage.setItem("draftSection", e.target.value); }}
               style={{
                 flex: 1, background: "transparent", border: "none",
-                color: "#e2e8f0", fontSize: 13, outline: "none",
+                color: isLight ? "#1e293b" : "#e2e8f0", fontSize: 13, outline: "none",
                 fontFamily: "'Segoe UI', sans-serif"
               }}
             />
@@ -484,9 +486,9 @@ const handleClear = async () => {
         {/* SCHEDULE GRID */}
         <div style={{ flex: 1, overflowX: "auto" }}>
           <div style={{
-            background: "rgba(255,255,255,0.04)", borderRadius: 16,
-            border: "1px solid rgba(255,255,255,0.1)", overflow: "hidden"
-          }}>
+              background: isLight ? "white" : "rgba(255,255,255,0.04)", borderRadius: 16,
+              border: isLight ? "1px solid #e2e8f0" : "1px solid rgba(255,255,255,0.1)", overflow: "hidden"
+            }}>
             <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 700 }}>
               <thead>
                 <tr>
@@ -589,7 +591,7 @@ const handleClear = async () => {
         {/* RIGHT PANELS */}
         <div style={{ display: "flex", flexDirection: "column", gap: 16, width: 200, flexShrink: 0 }}>
           {/* Subjects Panel */}
-          <div style={{ ...panelStyle }}>
+          <div style={{ ...panelStyle(isLight) }}>
             <div style={panelHeader("#3b82f6")}>
               <span>📚</span> Subjects
             </div>
@@ -653,7 +655,7 @@ const handleClear = async () => {
             </div>
 
           {/* Instructors Panel */}
-          <div style={{ ...panelStyle }}>
+          <div style={{ ...panelStyle(isLight) }}>
             <div style={panelHeader("#8b5cf6")}>
               <span>👨‍🏫</span> Instructors
             </div>
@@ -717,7 +719,7 @@ const handleClear = async () => {
           </div>
 
           {/* Selection Status */}
-          <div style={{ ...panelStyle, padding: 12 }}>
+          <div style={{ ...panelStyle(isLight), padding: 12 }}>
             <div style={{ fontSize: 10, color: "#64748b", marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }}>
               Selected
             </div>
@@ -804,10 +806,11 @@ const thStyle = {
   textAlign: "center", color: "#e2e8f0", letterSpacing: 0.5
 };
 
-const panelStyle = {
-  background: "rgba(255,255,255,0.04)", borderRadius: 12,
-  border: "1px solid rgba(255,255,255,0.08)", overflow: "hidden"
-};
+const panelStyle = (isLight) => ({
+  background: isLight ? "white" : "rgba(255,255,255,0.04)", borderRadius: 12,
+  border: isLight ? "1px solid #e2e8f0" : "1px solid rgba(255,255,255,0.08)", overflow: "hidden",
+  boxShadow: isLight ? "0 1px 3px rgba(0,0,0,0.08)" : "none"
+});
 
 const panelHeader = (color) => ({
   padding: "10px 12px", background: `${color}22`,

@@ -131,11 +131,11 @@ app.get('/api/schedules', (req, res) => {
 
 // Save a schedule
 app.post('/api/schedules', (req, res) => {
-  const { subject_id, instructor_id, room_id, type, day, time, section } = req.body
+  const { subject_id, instructor_id, room_id, type, day, time, end_time, section } = req.body
   const stmt = db.prepare(
-    'INSERT INTO class_schedule (subject_id, instructor_id, room_id, type, day, time, section) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    'INSERT INTO class_schedule (subject_id, instructor_id, room_id, type, day, time, end_time, section) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
   )
-  const result = stmt.run(subject_id, instructor_id, room_id, type, day, time, section)
+  const result = stmt.run(subject_id, instructor_id, room_id, type, day, time, end_time, section)
   res.json({ id: result.lastInsertRowid })
 })
 
