@@ -55,7 +55,7 @@ export default function Login({ theme }) {
         <div style={{ textAlign: "center", marginBottom: 32 }}>
           <div style={{ fontSize: 40, marginBottom: 12 }}>🎓</div>
           <div style={{ fontSize: 11, letterSpacing: 6, color: "#94a3b8", textTransform: "uppercase", marginBottom: 8 }}>
-            Academic Management System
+            Web Based Class Scheduling for ACLC
           </div>
           <h1 style={{
             margin: 0, fontSize: 24, fontWeight: 800,

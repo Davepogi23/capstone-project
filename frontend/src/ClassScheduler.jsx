@@ -1,14 +1,16 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 
-
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const DAY_SHORT = ["M", "T", "W", "TH", "F", "S", "SU"];
 
 const TIME_SLOTS = [
-  "6:00 AM", "7:00 AM", "8:00 AM", "9:00 AM", "10:00 AM", "11:00 AM",
-  "12:00 PM", "1:00 PM", "2:00 PM", "3:00 PM", "4:00 PM", "5:00 PM",
-  "6:00 PM", "7:00 PM", "8:00 PM", "9:00 PM"
+  "6:00 AM", "6:30 AM", "7:00 AM", "7:30 AM", "8:00 AM", "8:30 AM",
+  "9:00 AM", "9:30 AM", "10:00 AM", "10:30 AM", "11:00 AM", "11:30 AM",
+  "12:00 PM", "12:30 PM", "1:00 PM", "1:30 PM", "2:00 PM", "2:30 PM",
+  "3:00 PM", "3:30 PM", "4:00 PM", "4:30 PM", "5:00 PM", "5:30 PM",
+  "6:00 PM", "6:30 PM", "7:00 PM", "7:30 PM", "8:00 PM", "8:30 PM",
+  "9:00 PM"
 ];
 
 const SUBJECT_COLORS = [
@@ -19,6 +21,13 @@ const SUBJECT_COLORS = [
 const API = "http://localhost:3000/api";
 
 export default function ClassScheduler({ theme }) {
+  const [sections, setSections] = useState([]);
+  const [selectedSection, setSelectedSection] = useState(null);
+  const [rooms, setRooms] = useState([]);
+  const [selectedRoom, setSelectedRoom] = useState(null);
+  const [searchRoom, setSearchRoom] = useState("");
+  const [terms, setTerms] = useState([]);
+  const [selectedTerm, setSelectedTerm] = useState(null);
   const isLight = theme === "light";
   const navigate = useNavigate();
   const [subjects, setSubjects] = useState([]);
@@ -33,7 +42,6 @@ export default function ClassScheduler({ theme }) {
   const [selectedType, setSelectedType] = useState("LEC");
   const [newSubject, setNewSubject] = useState("");
   const [newInstructor, setNewInstructor] = useState("");
-  const [section, setSection] = useState(localStorage.getItem("draftSection") || "");
   const subjectColors = useRef({});
   const [searchSubject, setSearchSubject] = useState("");
   const [searchInstructor, setSearchInstructor] = useState("");
@@ -42,19 +50,19 @@ export default function ClassScheduler({ theme }) {
   const [lockChecked, setLockChecked] = useState(false);
   let colorIdx = useRef(0);
 
-useEffect(() => {
-  fetchSubjects();
-  fetchInstructors();
-  fetchSchedules();
-  acquireLock();
-
-  window.addEventListener('beforeunload', releaseLock);
-
-  return () => {
-    releaseLock();
-    window.removeEventListener('beforeunload', releaseLock);
-  };
-}, []);
+  useEffect(() => {
+    fetchSubjects();
+    fetchInstructors();
+    fetchSchedules();
+    fetchSections();
+    fetchRooms();
+    acquireLock();
+    window.addEventListener('beforeunload', releaseLock);
+    return () => {
+      releaseLock();
+      window.removeEventListener('beforeunload', releaseLock);
+    };
+  }, []);
 
   const fetchSubjects = async () => {
     const res = await fetch(`${API}/subjects`);
@@ -74,21 +82,33 @@ useEffect(() => {
     const scheduleMap = {};
     data.forEach(entry => {
       const timeIdx = TIME_SLOTS.findIndex(t => {
-        const hour = parseInt(t);
-        const isPM = t.includes("PM");
-        const entryHour = parseInt(entry.time);
-        const entryIsPM = entryHour >= 12;
-        return (isPM === entryIsPM) && (hour === (entryHour > 12 ? entryHour - 12 : entryHour));
+        const [timePart, period] = t.split(" ");
+        const [hourStr, minuteStr] = timePart.split(":");
+        const hour = parseInt(hourStr);
+        const minutes = parseInt(minuteStr || "0");
+        const isPM = period === "PM";
+        const hour24 = isPM && hour !== 12 ? hour + 12 : (!isPM && hour === 12 ? 0 : hour);
+        const entryTimeParts = entry.start_time.split(":");
+        const entryHour = parseInt(entryTimeParts[0]);
+        const entryMinutes = parseInt(entryTimeParts[1] || "0");
+        return hour24 === entryHour && minutes === entryMinutes;
       });
-      const dayIdx = DAYS.findIndex(d => d === entry.day);
+      const dayMap = {
+        'MON': 0, 'TUE': 1, 'WED': 2, 'THU': 3,
+        'FRI': 4, 'SAT': 5, 'SUN': 6,
+        'Monday': 0, 'Tuesday': 1, 'Wednesday': 2, 'Thursday': 3,
+        'Friday': 4, 'Saturday': 5, 'Sunday': 6
+      };
+      const dayIdx = dayMap[entry.day] ?? -1;
       if (dayIdx !== -1 && timeIdx !== -1) {
         const key = `${dayIdx}-${timeIdx}`;
         scheduleMap[key] = {
           id: entry.id,
           subject: { id: entry.subject_id, title: entry.subject_title || "Subject" },
           instructor: { id: entry.instructor_id, fullname: entry.instructor_name || "Instructor" },
-          type: entry.type,
-          section: entry.section,
+          room: { id: entry.room_id, room_code: entry.room_code },
+          type: entry.class_type,
+          section_id: entry.section_id,
           day: dayIdx,
           time: timeIdx,
         };
@@ -98,53 +118,63 @@ useEffect(() => {
     setLoading(false);
   };
 
-const acquireLock = async () => {
-  const user = JSON.parse(localStorage.getItem("user"));
-  const res = await fetch(`${API}/lock`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username: user.username })
-  });
-  const data = await res.json();
-  if (data.success) {
-    setIsLocked(false);
-    setLockedBy("");
-  } else {
-    // If the lock belongs to ME, release it and reacquire
-    if (data.lockedBy === user.username) {
-      await fetch(`${API}/lock`, {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: user.username })
-      });
-      // Try again
-      const res2 = await fetch(`${API}/lock`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: user.username })
-      });
-      const data2 = await res2.json();
-      if (data2.success) {
-        setIsLocked(false);
-        setLockedBy("");
-      }
-    } else {
-      setIsLocked(true);
-      setLockedBy(data.lockedBy);
-    }
-  }
-  setLockChecked(true);
-};
+  const fetchSections = async () => {
+    const res = await fetch(`${API}/sections/list`);
+    const data = await res.json();
+    setSections(data);
+  };
 
-const releaseLock = async () => {
-  const user = JSON.parse(localStorage.getItem("user"));
-  if (!user) return;
-  await fetch(`${API}/lock`, {
-    method: "DELETE",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username: user.username })
-  });
-};
+  const fetchRooms = async () => {
+    const res = await fetch(`${API}/rooms`);
+    const data = await res.json();
+    setRooms(data);
+  };
+
+  const acquireLock = async () => {
+    const user = JSON.parse(localStorage.getItem("user"));
+    const res = await fetch(`${API}/lock`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: user.username })
+    });
+    const data = await res.json();
+    if (data.success) {
+      setIsLocked(false);
+      setLockedBy("");
+    } else {
+      if (data.lockedBy === user.username) {
+        await fetch(`${API}/lock`, {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username: user.username })
+        });
+        const res2 = await fetch(`${API}/lock`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username: user.username })
+        });
+        const data2 = await res2.json();
+        if (data2.success) {
+          setIsLocked(false);
+          setLockedBy("");
+        }
+      } else {
+        setIsLocked(true);
+        setLockedBy(data.lockedBy);
+      }
+    }
+    setLockChecked(true);
+  };
+
+  const releaseLock = async () => {
+    const user = JSON.parse(localStorage.getItem("user"));
+    if (!user) return;
+    await fetch(`${API}/lock`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: user.username })
+    });
+  };
 
   const getSubjectColor = (subjectId) => {
     if (!subjectColors.current[subjectId]) {
@@ -163,16 +193,19 @@ const releaseLock = async () => {
 
   const timeToString = (timeIdx) => {
     const time = TIME_SLOTS[timeIdx];
-    const hour = parseInt(time);
-    const isPM = time.includes("PM");
+    const [timePart, period] = time.split(" ");
+    const [hourStr, minuteStr] = timePart.split(":");
+    const hour = parseInt(hourStr);
+    const minutes = minuteStr || "00";
+    const isPM = period === "PM";
     const hour24 = isPM && hour !== 12 ? hour + 12 : (!isPM && hour === 12 ? 0 : hour);
-    return `${String(hour24).padStart(2, '0')}:00:00`;
+    return `${String(hour24).padStart(2, '0')}:${minutes}:00`;
   };
-  
+
   const handleCellClick = async (dayIdx, timeIdx) => {
-    if (!section.trim()) {
-    showToast("Please enter a section name first!", "warn");
-    return;
+    if (!selectedSection) {
+      showToast("Please select a section first!", "warn");
+      return;
     }
     if (!selectedSubject || !selectedInstructor) {
       showToast("Select a subject and instructor first!", "warn");
@@ -183,6 +216,20 @@ const releaseLock = async () => {
       showToast("Cell already occupied!", "error");
       return;
     }
+    const timeStr = timeToString(timeIdx);
+    const day = DAYS[dayIdx];
+    const conflictRes = await fetch(
+      `${API}/schedules/conflicts?instructor_id=${selectedInstructor.id}&subject_id=${selectedSubject.id}&day=${day}&time=${timeStr}`
+    );
+    const { instructorConflict, subjectConflict } = await conflictRes.json();
+    if (instructorConflict) {
+      showToast(`Conflict! ${selectedInstructor.fullname} already has ${instructorConflict.subject_title} at ${day} ${TIME_SLOTS[timeIdx]} (${instructorConflict.section_name})`, "error");
+      return;
+    }
+    if (subjectConflict) {
+      showToast(`Conflict! ${selectedSubject.title} is already scheduled at ${day} ${TIME_SLOTS[timeIdx]} (${subjectConflict.section_name})`, "error");
+      return;
+    }
     try {
       const res = await fetch(`${API}/schedules`, {
         method: "POST",
@@ -190,21 +237,26 @@ const releaseLock = async () => {
         body: JSON.stringify({
           subject_id: selectedSubject.id,
           instructor_id: selectedInstructor.id,
-          room_id: 1,
-          type: selectedType,
+          room_id: selectedRoom?.id || null,
+          class_type: selectedType,
           day: DAYS[dayIdx],
-          time: timeToString(timeIdx)
+          start_time: timeToString(timeIdx)
         })
       });
       const data = await res.json();
+      if (data.error) {
+        showToast(data.error, "error");
+        return;
+      }
       setSchedule(prev => ({
         ...prev,
         [key]: {
           id: data.id,
           subject: selectedSubject,
           instructor: selectedInstructor,
+          room: selectedRoom,
           type: selectedType,
-          section: section,
+          section_id: selectedSection?.id,
           day: dayIdx,
           time: timeIdx,
         }
@@ -272,118 +324,116 @@ const releaseLock = async () => {
   };
 
   const handleCreateSchedule = async () => {
-  if (!section.trim()) {
-    showToast("Please enter a section name first!", "warn");
-    return;
-  }
-  const scheduledItems = Object.values(schedule);
-  if (scheduledItems.length === 0) {
-    showToast("Please add subjects to the grid first!", "warn");
-    return;
-  }
-  try {
-    const ids = scheduledItems.map(item => item.id);
-    await fetch(`${API}/schedules/assign-section`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ section: section, ids })
-    });
-    showToast("Schedule created successfully! 🎉", "success");
-    setSchedule({});
-    setSection("");
-    localStorage.removeItem("draftSection");
-    setTimeout(() => {
-      navigate("/schedules");
-    }, 1500);
-  } catch (err) {
-    showToast("Failed to create schedule!", "error");
-  }
-};
+    if (!selectedSection) {
+      showToast("Please select a section first!", "warn");
+      return;
+    }
+    const scheduledItems = Object.values(schedule);
+    if (scheduledItems.length === 0) {
+      showToast("Please add subjects to the grid first!", "warn");
+      return;
+    }
+    try {
+      const ids = scheduledItems.map(item => item.id);
+      await fetch(`${API}/schedules/assign-section`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ section_id: selectedSection.id, ids })
+      });
+      showToast("Schedule created successfully! 🎉", "success");
+      setSchedule({});
+      setSelectedSection(null);
+      setTimeout(() => { navigate("/schedules"); }, 1500);
+    } catch (err) {
+      showToast("Failed to create schedule!", "error");
+    }
+  };
 
-const handleClear = async () => {
-  if (!confirm("Clear everything? This will delete all unsaved schedules!")) return;
-  const draftItems = Object.values(schedule).filter(s => !s.section || s.section === "");
-  await Promise.all(draftItems.map(item =>
-    fetch(`${API}/schedules/${item.id}`, { method: "DELETE" })
-  ));
-  setSchedule({});
-  setSection("");
-  localStorage.removeItem("draftSection");
-  showToast("Cleared!", "success");
-};
+  const handleClear = async () => {
+    if (!confirm("Clear everything? This will delete all unsaved schedules!")) return;
+    const draftItems = Object.values(schedule);
+    await Promise.all(draftItems.map(item =>
+      fetch(`${API}/schedules/${item.id}`, { method: "DELETE" })
+    ));
+    setSchedule({});
+    setSelectedSection(null);
+    showToast("Cleared!", "success");
+  };
 
   const handleDrop = async (dayIdx, timeIdx, e) => {
-  if (!dragItem) return;
-  if (!section.trim()) {
-    showToast("Please enter a section name first!", "warn");
-    setDragItem(null);
-    return;
-  }
-  const key = getCellKey(dayIdx, timeIdx);
-  const isCopy = e?.ctrlKey || e?.metaKey;
-
-  let sub, ins, entryType;
-  if (dragItem.type === "scheduled") {
-    const originalEntry = schedule[dragItem.item.key];
-    sub = originalEntry?.subject;
-    ins = originalEntry?.instructor;
-    entryType = originalEntry?.type;
-  } else {
-    sub = dragItem.type === "subject" ? dragItem.item : selectedSubject;
-    ins = dragItem.type === "instructor" ? dragItem.item : selectedInstructor;
-    entryType = selectedType;
-  }
-
-  if (!sub || !ins) {
-    showToast("Select both subject and instructor!", "warn");
-    setDragItem(null);
-    return;
-  }
-  if (schedule[key]) {
-    showToast("Cell already occupied!", "error");
-    setDragItem(null);
-    return;
-  }
-  try {
-    const res = await fetch(`${API}/schedules`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        subject_id: sub.id,
-        instructor_id: ins.id,
-        room_id: 1,
-        type: entryType,
-        day: DAYS[dayIdx],
-        time: timeToString(timeIdx)
-      })
-    });
-    const data = await res.json();
-
-    if (!isCopy && dragItem.type === "scheduled") {
-      const oldEntry = schedule[dragItem.item.key];
-      if (oldEntry) {
-        await fetch(`${API}/schedules/${oldEntry.id}`, { method: "DELETE" });
-        setSchedule(prev => {
-          const n = { ...prev };
-          delete n[dragItem.item.key];
-          n[key] = { id: data.id, subject: sub, instructor: ins, type: entryType, section: section, day: dayIdx, time: timeIdx };
-          return n;
-        });
-        showToast(`Moved ${sub.title}!`, "success");
-      }
-    } else {
-      setSchedule(prev => ({
-        ...prev,
-        [key]: { id: data.id, subject: sub, instructor: ins, type: entryType, section: section, day: dayIdx, time: timeIdx }
-      }));
-      showToast(isCopy ? `Copied ${sub.title}! 📋` : `Dropped ${sub.title}!`, "success");
+    if (!dragItem) return;
+    if (!selectedSection) {
+      showToast("Please select a section first!", "warn");
+      setDragItem(null);
+      return;
     }
-  } catch (err) {
-    showToast("Failed to save!", "error");
-  }
-  setDragItem(null);
-  setHoveredCell(null);
-};
+    const key = getCellKey(dayIdx, timeIdx);
+    const isCopy = e?.ctrlKey || e?.metaKey;
+    let sub, ins, entryType;
+    if (dragItem.type === "scheduled") {
+      const originalEntry = schedule[dragItem.item.key];
+      sub = originalEntry?.subject;
+      ins = originalEntry?.instructor;
+      entryType = originalEntry?.type;
+    } else {
+      sub = dragItem.type === "subject" ? dragItem.item : selectedSubject;
+      ins = dragItem.type === "instructor" ? dragItem.item : selectedInstructor;
+      entryType = selectedType;
+    }
+    if (!sub || !ins) {
+      showToast("Select both subject and instructor!", "warn");
+      setDragItem(null);
+      return;
+    }
+    if (schedule[key]) {
+      showToast("Cell already occupied!", "error");
+      setDragItem(null);
+      return;
+    }
+    try {
+      const res = await fetch(`${API}/schedules`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          subject_id: sub.id,
+          instructor_id: ins.id,
+          room_id: selectedRoom?.id || null,
+          class_type: entryType,
+          day: DAYS[dayIdx],
+          start_time: timeToString(timeIdx)
+        })
+      });
+      const data = await res.json();
+      if (data.error) {
+        showToast(data.error, "error");
+        setDragItem(null);
+        return;
+      }
+      if (!isCopy && dragItem.type === "scheduled") {
+        const oldEntry = schedule[dragItem.item.key];
+        if (oldEntry) {
+          await fetch(`${API}/schedules/${oldEntry.id}`, { method: "DELETE" });
+          setSchedule(prev => {
+            const n = { ...prev };
+            delete n[dragItem.item.key];
+            n[key] = { id: data.id, subject: sub, instructor: ins, type: entryType, section_id: selectedSection?.id, day: dayIdx, time: timeIdx };
+            return n;
+          });
+          showToast(`Moved ${sub.title}!`, "success");
+        }
+      } else {
+        setSchedule(prev => ({
+          ...prev,
+          [key]: { id: data.id, subject: sub, instructor: ins, type: entryType, section_id: selectedSection?.id, day: dayIdx, time: timeIdx }
+        }));
+        showToast(isCopy ? `Copied ${sub.title}! 📋` : `Dropped ${sub.title}!`, "success");
+      }
+    } catch (err) {
+      showToast("Failed to save!", "error");
+    }
+    setDragItem(null);
+    setHoveredCell(null);
+  };
 
   if (loading) return (
     <div style={{
@@ -391,9 +441,7 @@ const handleClear = async () => {
       justifyContent: "center",
       background: "linear-gradient(135deg, #0f0c29, #302b63, #24243e)",
       color: "#e2e8f0", fontSize: 20
-    }}>
-      Loading...
-    </div>
+    }}>Loading...</div>
   );
 
   return (
@@ -406,17 +454,15 @@ const handleClear = async () => {
       {/* Header */}
       <div style={{ textAlign: "center", marginBottom: 20 }}>
         <div style={{ fontSize: 11, letterSpacing: 6, color: "#94a3b8", textTransform: "uppercase", marginBottom: 6 }}>
-          Academic Management System
+          Web Based Class Scheduling for ACLC
         </div>
         <h1 style={{
           margin: "0 0 16px", fontSize: 32, fontWeight: 800,
           background: "linear-gradient(90deg, #60a5fa, #a78bfa, #f472b6)",
           WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent"
-        }}>
-          Class Scheduler
-        </h1>
+        }}>Class Scheduler</h1>
 
-        {/* Section Input Bar */}
+        {/* Section Dropdown */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12 }}>
           <div style={{
             display: "flex", alignItems: "center", gap: 10,
@@ -425,25 +471,33 @@ const handleClear = async () => {
             borderRadius: 12, padding: "10px 16px", width: 400
           }}>
             <span style={{ fontSize: 16 }}>🏫</span>
-            <input
-              placeholder="Enter section name (e.g. BSIT 2A)..."
-              value={section}
-              onChange={e => { setSection(e.target.value); localStorage.setItem("draftSection", e.target.value); }}
+            <select
+              value={selectedSection?.id || ""}
+              onChange={e => {
+                const sec = sections.find(s => s.id === parseInt(e.target.value));
+                setSelectedSection(sec || null);
+              }}
               style={{
                 flex: 1, background: "transparent", border: "none",
                 color: isLight ? "#1e293b" : "#e2e8f0", fontSize: 13, outline: "none",
-                fontFamily: "'Segoe UI', sans-serif"
+                fontFamily: "'Segoe UI', sans-serif", cursor: "pointer"
               }}
-            />
-            {section && (
+            >
+              <option value="">Select a section...</option>
+              {sections.map(s => (
+                <option key={s.id} value={s.id}
+                  style={{ background: isLight ? "white" : "#1e293b", color: isLight ? "#1e293b" : "#e2e8f0" }}>
+                  {s.section_name}
+                </option>
+              ))}
+            </select>
+            {selectedSection && (
               <span style={{
                 fontSize: 10, fontWeight: 700, color: "#60a5fa",
                 background: "rgba(96,165,250,0.15)",
                 padding: "3px 8px", borderRadius: 20,
                 border: "1px solid rgba(96,165,250,0.3)"
-              }}>
-                {section}
-              </span>
+              }}>{selectedSection.section_name}</span>
             )}
           </div>
         </div>
@@ -456,39 +510,34 @@ const handleClear = async () => {
           background: toast.type === "success" ? "#10b981" : toast.type === "warn" ? "#f59e0b" : "#ef4444",
           color: "white", padding: "10px 18px", borderRadius: 10, fontWeight: 600,
           boxShadow: "0 4px 20px rgba(0,0,0,0.4)", fontSize: 13
-        }}>
-          {toast.msg}
-        </div>
+        }}>{toast.msg}</div>
       )}
 
       {/* Lock Banner */}
-        {lockChecked && isLocked && (
-          <div style={{
-            position: "fixed", top: 0, left: 0, right: 0, zIndex: 998,
-            background: "rgba(239,68,68,0.95)",
-            padding: "14px 24px",
-            display: "flex", alignItems: "center", justifyContent: "center", gap: 12,
-            boxShadow: "0 4px 20px rgba(0,0,0,0.4)"
-          }}>
-            <span style={{ fontSize: 20 }}>🔒</span>
-            <div>
-              <div style={{ fontSize: 14, fontWeight: 700, color: "white" }}>
-                Scheduler is currently locked
-              </div>
-              <div style={{ fontSize: 12, color: "rgba(255,255,255,0.8)" }}>
-                <strong>{lockedBy}</strong> is currently editing. You can view but not make changes.
-              </div>
+      {lockChecked && isLocked && (
+        <div style={{
+          position: "fixed", top: 0, left: 0, right: 0, zIndex: 998,
+          background: "rgba(239,68,68,0.95)", padding: "14px 24px",
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 12,
+          boxShadow: "0 4px 20px rgba(0,0,0,0.4)"
+        }}>
+          <span style={{ fontSize: 20 }}>🔒</span>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "white" }}>Scheduler is currently locked</div>
+            <div style={{ fontSize: 12, color: "rgba(255,255,255,0.8)" }}>
+              <strong>{lockedBy}</strong> is currently editing. You can view but not make changes.
             </div>
           </div>
-        )}
+        </div>
+      )}
 
       <div style={{ display: "flex", gap: 20, alignItems: "flex-start" }}>
         {/* SCHEDULE GRID */}
         <div style={{ flex: 1, overflowX: "auto" }}>
           <div style={{
-              background: isLight ? "white" : "rgba(255,255,255,0.04)", borderRadius: 16,
-              border: isLight ? "1px solid #e2e8f0" : "1px solid rgba(255,255,255,0.1)", overflow: "hidden"
-            }}>
+            background: isLight ? "white" : "rgba(255,255,255,0.04)", borderRadius: 16,
+            border: isLight ? "1px solid #e2e8f0" : "1px solid rgba(255,255,255,0.1)", overflow: "hidden"
+          }}>
             <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 700 }}>
               <thead>
                 <tr>
@@ -516,8 +565,7 @@ const handleClear = async () => {
                       const isHovered = hoveredCell === key;
                       const color = entry ? getSubjectColor(entry.subject.id) : null;
                       return (
-                        <td
-                          key={dIdx}
+                        <td key={dIdx}
                           onClick={() => !entry && !isLocked && handleCellClick(dIdx, tIdx)}
                           onDragOver={(e) => { e.preventDefault(); setHoveredCell(key); }}
                           onDragLeave={() => setHoveredCell(null)}
@@ -528,49 +576,39 @@ const handleClear = async () => {
                             cursor: entry ? "default" : "pointer",
                             background: isHovered && !entry ? "rgba(96,165,250,0.2)" : entry ? `${color}22` : "transparent",
                             transition: "background 0.15s", verticalAlign: "top", position: "relative"
-                          }}
-                        >
+                          }}>
                           {entry ? (
-                            <div
-                              draggable
-                              onDragStart={() => handleDragStart("scheduled", { key })}
+                            <div draggable onDragStart={() => handleDragStart("scheduled", { key })}
                               style={{
                                 background: `${color}33`, border: `1.5px solid ${color}88`,
                                 borderLeft: `4px solid ${color}`, borderRadius: 6,
                                 padding: "3px 6px", height: "100%", boxSizing: "border-box",
                                 cursor: "grab", position: "relative"
-                              }}
-                            >
+                              }}>
                               <div style={{ fontSize: 11, fontWeight: 700, color, lineHeight: 1.2 }}>
                                 {entry.subject.title}
                               </div>
-                              <div style={{ fontSize: 9, color: "#cbd5e1", lineHeight: 1.2, marginTop: 1 }}>
-                                {entry.instructor.fullname || entry.instructor.name}
+                              <div style={{ fontSize: 9, color: isLight ? "#475569" : "#cbd5e1", lineHeight: 1.2, marginTop: 1 }}>
+                                {entry.instructor.fullname}
                               </div>
-                              <div style={{
-                                fontSize: 8, fontWeight: 700, marginTop: 2,
-                                color: entry.type === "LAB" ? "#f472b6" : "#60a5fa"
-                              }}>
+                              <div style={{ fontSize: 8, fontWeight: 700, marginTop: 2, color: entry.type === "LAB" ? "#f472b6" : "#60a5fa" }}>
                                 {entry.type || "LEC"}
                               </div>
-                              <button
-                                onClick={(e) => { e.stopPropagation(); handleRemove(key); }}
+                              <button onClick={(e) => { e.stopPropagation(); handleRemove(key); }}
                                 style={{
                                   position: "absolute", top: 2, right: 2,
                                   background: "rgba(239,68,68,0.3)", border: "none",
                                   color: "#fca5a5", borderRadius: 3, width: 14, height: 14,
                                   cursor: "pointer", fontSize: 9, lineHeight: 1,
                                   display: "flex", alignItems: "center", justifyContent: "center", padding: 0
-                                }}
-                              >✕</button>
+                                }}>✕</button>
                             </div>
                           ) : (
                             isHovered && (
                               <div style={{
                                 position: "absolute", inset: 2,
-                                border: "2px dashed rgba(96,165,250,0.6)",
-                                borderRadius: 6, display: "flex",
-                                alignItems: "center", justifyContent: "center",
+                                border: "2px dashed rgba(96,165,250,0.6)", borderRadius: 6,
+                                display: "flex", alignItems: "center", justifyContent: "center",
                                 color: "rgba(96,165,250,0.8)", fontSize: 18
                               }}>+</div>
                             )
@@ -584,168 +622,135 @@ const handleClear = async () => {
             </table>
           </div>
           <div style={{ fontSize: 11, color: "#64748b", marginTop: 10, textAlign: "center" }}>
-            💡 Click a cell to place • Drag scheduled blocks to move • Drag from panels below
+            💡 Click a cell to place • Drag scheduled blocks to move • Ctrl+drag to copy
           </div>
         </div>
 
         {/* RIGHT PANELS */}
         <div style={{ display: "flex", flexDirection: "column", gap: 16, width: 200, flexShrink: 0 }}>
+
           {/* Subjects Panel */}
           <div style={{ ...panelStyle(isLight) }}>
-            <div style={panelHeader("#3b82f6")}>
-              <span>📚</span> Subjects
-            </div>
-                <div style={{ padding: "8px" }}>
-                  <div style={{ display: "flex", gap: 4, marginBottom: 6 }}>
-                    <input
-                      placeholder="Add subject..."
-                      value={newSubject}
-                      onChange={e => setNewSubject(e.target.value)}
-                      onKeyDown={e => e.key === "Enter" && handleAddSubject()}
-                      style={{
-                        flex: 1, padding: "6px 8px", borderRadius: 6,
-                        border: "1px solid rgba(255,255,255,0.1)",
-                        background: "rgba(255,255,255,0.05)",
-                        color: "#e2e8f0", fontSize: 11, outline: "none"
-                      }}
-                    />
-                    <button onClick={handleAddSubject} style={{
-                      padding: "6px 10px", borderRadius: 6, border: "none",
-                      background: "rgba(96,165,250,0.3)", color: "#60a5fa",
-                      cursor: "pointer", fontSize: 14, fontWeight: 700
-                    }}>+</button>
-                  </div>
-                  <input
-                    placeholder="🔍 Search..."
-                    value={searchSubject}
-                    onChange={e => setSearchSubject(e.target.value)}
+            <div style={panelHeader("#3b82f6")}><span>📚</span> Subjects</div>
+            <div style={{ padding: "8px" }}>
+              <div style={{ display: "flex", gap: 4, marginBottom: 6 }}>
+                <input placeholder="Add subject..." value={newSubject}
+                  onChange={e => setNewSubject(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && handleAddSubject()}
+                  style={{ flex: 1, padding: "6px 8px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.05)", color: isLight ? "#1e293b" : "#e2e8f0", fontSize: 11, outline: "none" }} />
+                <button onClick={handleAddSubject} style={{ padding: "6px 10px", borderRadius: 6, border: "none", background: "rgba(96,165,250,0.3)", color: "#60a5fa", cursor: "pointer", fontSize: 14, fontWeight: 700 }}>+</button>
+              </div>
+              <input placeholder="🔍 Search..." value={searchSubject}
+                onChange={e => setSearchSubject(e.target.value)}
+                style={{ width: "100%", padding: "6px 8px", borderRadius: 6, marginBottom: 6, border: "1px solid rgba(255,255,255,0.08)", background: "rgba(255,255,255,0.03)", color: isLight ? "#1e293b" : "#e2e8f0", fontSize: 11, outline: "none", boxSizing: "border-box" }} />
+              <div style={{ maxHeight: 160, overflowY: "auto" }}>
+                {subjects.filter(s => s.title.toLowerCase().includes(searchSubject.toLowerCase())).map(s => (
+                  <div key={s.id} draggable
+                    onDragStart={() => { handleDragStart("subject", s); setSelectedSubject(s); }}
+                    onClick={() => setSelectedSubject(s)}
                     style={{
-                      width: "100%", padding: "6px 8px", borderRadius: 6, marginBottom: 6,
-                      border: "1px solid rgba(255,255,255,0.08)",
-                      background: "rgba(255,255,255,0.03)",
-                      color: "#e2e8f0", fontSize: 11, outline: "none",
-                      boxSizing: "border-box"
-                    }}
-                  />
-                  <div style={{ maxHeight: 160, overflowY: "auto" }}>
-                    {subjects
-                      .filter(s => s.title.toLowerCase().includes(searchSubject.toLowerCase()))
-                      .map(s => (
-                        <div key={s.id} draggable
-                          onDragStart={() => { handleDragStart("subject", s); setSelectedSubject(s); }}
-                          onClick={() => setSelectedSubject(s)}
-                          style={{
-                            padding: "8px 12px", margin: "3px 0", borderRadius: 8, cursor: "pointer",
-                            background: selectedSubject?.id === s.id ? `${getSubjectColor(s.id)}33` : "rgba(255,255,255,0.03)",
-                            border: selectedSubject?.id === s.id ? `1.5px solid ${getSubjectColor(s.id)}88` : "1.5px solid transparent",
-                            borderLeft: `4px solid ${getSubjectColor(s.id)}`, transition: "all 0.15s",
-                            display: "flex", alignItems: "center", justifyContent: "space-between"
-                          }}>
-                          <div style={{ fontSize: 11, fontWeight: 700, color: getSubjectColor(s.id) }}>{s.title}</div>
-                          <button onClick={(e) => { e.stopPropagation(); handleDeleteSubject(s.id); }}
-                            style={{
-                              background: "rgba(239,68,68,0.2)", border: "none", color: "#fca5a5",
-                              borderRadius: 3, width: 16, height: 16, cursor: "pointer", fontSize: 9,
-                              display: "flex", alignItems: "center", justifyContent: "center", padding: 0
-                            }}>✕</button>
-                        </div>
-                      ))}
+                      padding: "8px 12px", margin: "3px 0", borderRadius: 8, cursor: "pointer",
+                      background: selectedSubject?.id === s.id ? `${getSubjectColor(s.id)}33` : "rgba(255,255,255,0.03)",
+                      border: selectedSubject?.id === s.id ? `1.5px solid ${getSubjectColor(s.id)}88` : "1.5px solid transparent",
+                      borderLeft: `4px solid ${getSubjectColor(s.id)}`, transition: "all 0.15s",
+                      display: "flex", alignItems: "center", justifyContent: "space-between"
+                    }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: getSubjectColor(s.id) }}>{s.title}</div>
+                    <button onClick={(e) => { e.stopPropagation(); handleDeleteSubject(s.id); }}
+                      style={{ background: "rgba(239,68,68,0.2)", border: "none", color: "#fca5a5", borderRadius: 3, width: 16, height: 16, cursor: "pointer", fontSize: 9, display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>✕</button>
                   </div>
-                </div>
+                ))}
+              </div>
             </div>
+          </div>
 
           {/* Instructors Panel */}
           <div style={{ ...panelStyle(isLight) }}>
-            <div style={panelHeader("#8b5cf6")}>
-              <span>👨‍🏫</span> Instructors
+            <div style={panelHeader("#8b5cf6")}><span>👨‍🏫</span> Instructors</div>
+            <div style={{ padding: "8px" }}>
+              <div style={{ display: "flex", gap: 4, marginBottom: 6 }}>
+                <input placeholder="Add instructor..." value={newInstructor}
+                  onChange={e => setNewInstructor(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && handleAddInstructor()}
+                  style={{ flex: 1, padding: "6px 8px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.05)", color: isLight ? "#1e293b" : "#e2e8f0", fontSize: 11, outline: "none" }} />
+                <button onClick={handleAddInstructor} style={{ padding: "6px 10px", borderRadius: 6, border: "none", background: "rgba(139,92,246,0.3)", color: "#a78bfa", cursor: "pointer", fontSize: 14, fontWeight: 700 }}>+</button>
+              </div>
+              <input placeholder="🔍 Search..." value={searchInstructor}
+                onChange={e => setSearchInstructor(e.target.value)}
+                style={{ width: "100%", padding: "6px 8px", borderRadius: 6, marginBottom: 6, border: "1px solid rgba(255,255,255,0.08)", background: "rgba(255,255,255,0.03)", color: isLight ? "#1e293b" : "#e2e8f0", fontSize: 11, outline: "none", boxSizing: "border-box" }} />
+              <div style={{ maxHeight: 160, overflowY: "auto" }}>
+                {instructors.filter(i => i.fullname.toLowerCase().includes(searchInstructor.toLowerCase())).map(ins => (
+                  <div key={ins.id} draggable
+                    onDragStart={() => { handleDragStart("instructor", ins); setSelectedInstructor(ins); }}
+                    onClick={() => setSelectedInstructor(ins)}
+                    style={{
+                      padding: "8px 12px", margin: "3px 0", borderRadius: 8, cursor: "pointer",
+                      background: selectedInstructor?.id === ins.id ? "rgba(139,92,246,0.2)" : "rgba(255,255,255,0.03)",
+                      border: selectedInstructor?.id === ins.id ? "1.5px solid rgba(139,92,246,0.6)" : "1.5px solid transparent",
+                      borderLeft: "4px solid rgba(139,92,246,0.7)", transition: "all 0.15s",
+                      display: "flex", alignItems: "center", justifyContent: "space-between"
+                    }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: isLight ? "#7c3aed" : "#c4b5fd" }}>{ins.fullname}</div>
+                    <button onClick={(e) => { e.stopPropagation(); handleDeleteInstructor(ins.id); }}
+                      style={{ background: "rgba(239,68,68,0.2)", border: "none", color: "#fca5a5", borderRadius: 3, width: 16, height: 16, cursor: "pointer", fontSize: 9, display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>✕</button>
+                  </div>
+                ))}
+              </div>
             </div>
-                      <div style={{ padding: "8px" }}>
-                      <div style={{ display: "flex", gap: 4, marginBottom: 6 }}>
-                        <input
-                          placeholder="Add instructor..."
-                          value={newInstructor}
-                          onChange={e => setNewInstructor(e.target.value)}
-                          onKeyDown={e => e.key === "Enter" && handleAddInstructor()}
-                          style={{
-                            flex: 1, padding: "6px 8px", borderRadius: 6,
-                            border: "1px solid rgba(255,255,255,0.1)",
-                            background: "rgba(255,255,255,0.05)",
-                            color: "#e2e8f0", fontSize: 11, outline: "none"
-                          }}
-                        />
-                        <button onClick={handleAddInstructor} style={{
-                          padding: "6px 10px", borderRadius: 6, border: "none",
-                          background: "rgba(139,92,246,0.3)", color: "#a78bfa",
-                          cursor: "pointer", fontSize: 14, fontWeight: 700
-                        }}>+</button>
-                      </div>
-                      <input
-                        placeholder="🔍 Search..."
-                        value={searchInstructor}
-                        onChange={e => setSearchInstructor(e.target.value)}
-                        style={{
-                          width: "100%", padding: "6px 8px", borderRadius: 6, marginBottom: 6,
-                          border: "1px solid rgba(255,255,255,0.08)",
-                          background: "rgba(255,255,255,0.03)",
-                          color: "#e2e8f0", fontSize: 11, outline: "none",
-                          boxSizing: "border-box"
-                        }}
-                      />
-                      <div style={{ maxHeight: 160, overflowY: "auto" }}>
-                        {instructors
-                          .filter(i => i.fullname.toLowerCase().includes(searchInstructor.toLowerCase()))
-                          .map(ins => (
-                            <div key={ins.id} draggable
-                              onDragStart={() => { handleDragStart("instructor", ins); setSelectedInstructor(ins); }}
-                              onClick={() => setSelectedInstructor(ins)}
-                              style={{
-                                padding: "8px 12px", margin: "3px 0", borderRadius: 8, cursor: "pointer",
-                                background: selectedInstructor?.id === ins.id ? "rgba(139,92,246,0.2)" : "rgba(255,255,255,0.03)",
-                                border: selectedInstructor?.id === ins.id ? "1.5px solid rgba(139,92,246,0.6)" : "1.5px solid transparent",
-                                borderLeft: "4px solid rgba(139,92,246,0.7)", transition: "all 0.15s",
-                                display: "flex", alignItems: "center", justifyContent: "space-between"
-                              }}>
-                              <div style={{ fontSize: 11, fontWeight: 700, color: "#c4b5fd" }}>{ins.fullname}</div>
-                              <button onClick={(e) => { e.stopPropagation(); handleDeleteInstructor(ins.id); }}
-                                style={{
-                                  background: "rgba(239,68,68,0.2)", border: "none", color: "#fca5a5",
-                                  borderRadius: 3, width: 16, height: 16, cursor: "pointer", fontSize: 9,
-                                  display: "flex", alignItems: "center", justifyContent: "center", padding: 0
-                                }}>✕</button>
-                            </div>
-                          ))}
-                      </div>
-                    </div>
+          </div>
+
+          {/* Rooms Panel */}
+          <div style={{ ...panelStyle(isLight) }}>
+            <div style={panelHeader("#10b981")}><span>🚪</span> Rooms</div>
+            <div style={{ padding: "8px" }}>
+              <input placeholder="🔍 Search room..." value={searchRoom}
+                onChange={e => setSearchRoom(e.target.value)}
+                style={{ width: "100%", padding: "6px 8px", borderRadius: 6, marginBottom: 6, border: "1px solid rgba(255,255,255,0.08)", background: "rgba(255,255,255,0.03)", color: isLight ? "#1e293b" : "#e2e8f0", fontSize: 11, outline: "none", boxSizing: "border-box" }} />
+              <div style={{ maxHeight: 160, overflowY: "auto" }}>
+                {rooms.filter(r => r.room_code.toLowerCase().includes(searchRoom.toLowerCase())).map(r => (
+                  <div key={r.id} onClick={() => setSelectedRoom(selectedRoom?.id === r.id ? null : r)}
+                    style={{
+                      padding: "8px 12px", margin: "3px 0", borderRadius: 8, cursor: "pointer",
+                      background: selectedRoom?.id === r.id ? "rgba(16,185,129,0.2)" : "rgba(255,255,255,0.03)",
+                      border: selectedRoom?.id === r.id ? "1.5px solid rgba(16,185,129,0.6)" : "1.5px solid transparent",
+                      borderLeft: "4px solid rgba(16,185,129,0.7)", transition: "all 0.15s",
+                    }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: isLight ? "#059669" : "#6ee7b7" }}>{r.room_code}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
 
           {/* Selection Status */}
           <div style={{ ...panelStyle(isLight), padding: 12 }}>
-            <div style={{ fontSize: 10, color: "#64748b", marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }}>
-              Selected
-            </div>
+            <div style={{ fontSize: 10, color: "#64748b", marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }}>Selected</div>
             <div style={{ marginBottom: 6 }}>
               <div style={{ fontSize: 9, color: "#60a5fa" }}>SUBJECT</div>
-              <div style={{ fontSize: 11, color: selectedSubject ? "#e2e8f0" : "#475569" }}>
+              <div style={{ fontSize: 11, color: selectedSubject ? (isLight ? "#1e293b" : "#e2e8f0") : "#475569" }}>
                 {selectedSubject ? selectedSubject.title : "None selected"}
               </div>
             </div>
-            <div>
+            <div style={{ marginBottom: 6 }}>
               <div style={{ fontSize: 9, color: "#a78bfa" }}>INSTRUCTOR</div>
-              <div style={{ fontSize: 11, color: selectedInstructor ? "#e2e8f0" : "#475569" }}>
+              <div style={{ fontSize: 11, color: selectedInstructor ? (isLight ? "#1e293b" : "#e2e8f0") : "#475569" }}>
                 {selectedInstructor ? selectedInstructor.fullname : "None selected"}
+              </div>
+            </div>
+            <div style={{ marginBottom: 6 }}>
+              <div style={{ fontSize: 9, color: "#6ee7b7" }}>ROOM</div>
+              <div style={{ fontSize: 11, color: selectedRoom ? (isLight ? "#1e293b" : "#e2e8f0") : "#475569" }}>
+                {selectedRoom ? selectedRoom.room_code : "None selected"}
               </div>
             </div>
             {(selectedSubject && selectedInstructor) || Object.keys(schedule).length > 0 ? (
               <>
                 <div style={{ marginTop: 10 }}>
-                  <div style={{ fontSize: 9, color: "#64748b", marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>
-                    Type
-                  </div>
+                  <div style={{ fontSize: 9, color: "#64748b", marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>Type</div>
                   <div style={{ display: "flex", gap: 6 }}>
                     {["LEC", "LAB"].map(t => (
                       <button key={t} onClick={() => setSelectedType(t)} style={{
-                        flex: 1, padding: "6px 0", borderRadius: 6,
-                        cursor: "pointer", fontSize: 11, fontWeight: 700,
+                        flex: 1, padding: "6px 0", borderRadius: 6, cursor: "pointer", fontSize: 11, fontWeight: 700,
                         background: selectedType === t ? t === "LEC" ? "rgba(96,165,250,0.3)" : "rgba(236,72,153,0.3)" : "rgba(255,255,255,0.05)",
                         color: selectedType === t ? t === "LEC" ? "#60a5fa" : "#f472b6" : "#64748b",
                         border: selectedType === t ? t === "LEC" ? "1px solid rgba(96,165,250,0.5)" : "1px solid rgba(236,72,153,0.5)" : "1px solid transparent",
@@ -754,42 +759,22 @@ const handleClear = async () => {
                     ))}
                   </div>
                 </div>
-                <div style={{
-                  marginTop: 10, padding: "6px 10px", borderRadius: 6,
-                  background: "rgba(16,185,129,0.15)", border: "1px solid rgba(16,185,129,0.3)",
-                  fontSize: 10, color: "#6ee7b7", textAlign: "center"
-                }}>
+                <div style={{ marginTop: 10, padding: "6px 10px", borderRadius: 6, background: "rgba(16,185,129,0.15)", border: "1px solid rgba(16,185,129,0.3)", fontSize: 10, color: "#6ee7b7", textAlign: "center" }}>
                   ✓ Ready to schedule
                 </div>
                 <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
-                  <button
-                    onClick={handleClear}
-                    disabled={isLocked}
-                    style={{
-                      flex: 1, padding: "10px", borderRadius: 8,
-                      border: "1px solid rgba(239,68,68,0.3)",
-                      background: isLocked ? "rgba(255,255,255,0.05)" : "rgba(239,68,68,0.15)",
-                      color: isLocked ? "#475569" : "#fca5a5",
-                      fontSize: 12, fontWeight: 700,
-                      cursor: isLocked ? "not-allowed" : "pointer", transition: "all 0.2s"
-                    }}
-                  >
-                    🗑️ Clear
-                  </button>
-                  <button
-                    onClick={handleCreateSchedule}
-                    disabled={isLocked}
-                    style={{
-                      flex: 2, padding: "10px", borderRadius: 8,
-                      border: "none",
-                      cursor: isLocked ? "not-allowed" : "pointer",
-                      fontSize: 12, fontWeight: 700,
-                      background: isLocked ? "rgba(255,255,255,0.05)" : "linear-gradient(90deg, #3b82f6, #8b5cf6)",
-                      color: isLocked ? "#475569" : "white", transition: "all 0.2s"
-                    }}
-                  >
-                    + Create Schedule
-                  </button>
+                  <button onClick={handleClear} disabled={isLocked} style={{
+                    flex: 1, padding: "10px", borderRadius: 8, border: "1px solid rgba(239,68,68,0.3)",
+                    background: isLocked ? "rgba(255,255,255,0.05)" : "rgba(239,68,68,0.15)",
+                    color: isLocked ? "#475569" : "#fca5a5", fontSize: 12, fontWeight: 700,
+                    cursor: isLocked ? "not-allowed" : "pointer", transition: "all 0.2s"
+                  }}>🗑️ Clear</button>
+                  <button onClick={handleCreateSchedule} disabled={isLocked} style={{
+                    flex: 2, padding: "10px", borderRadius: 8, border: "none",
+                    cursor: isLocked ? "not-allowed" : "pointer", fontSize: 12, fontWeight: 700,
+                    background: isLocked ? "rgba(255,255,255,0.05)" : "linear-gradient(90deg, #3b82f6, #8b5cf6)",
+                    color: isLocked ? "#475569" : "white", transition: "all 0.2s"
+                  }}>+ Create Schedule</button>
                 </div>
               </>
             ) : null}

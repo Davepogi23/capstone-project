@@ -5,9 +5,12 @@ const API = "http://localhost:3000/api";
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const DAY_SHORT = ["M", "T", "W", "TH", "F", "S", "SU"];
 const TIME_SLOTS = [
-  "6:00 AM", "7:00 AM", "8:00 AM", "9:00 AM", "10:00 AM", "11:00 AM",
-  "12:00 PM", "1:00 PM", "2:00 PM", "3:00 PM", "4:00 PM", "5:00 PM",
-  "6:00 PM", "7:00 PM", "8:00 PM", "9:00 PM"
+  "6:00 AM", "6:30 AM", "7:00 AM", "7:30 AM", "8:00 AM", "8:30 AM",
+  "9:00 AM", "9:30 AM", "10:00 AM", "10:30 AM", "11:00 AM", "11:30 AM",
+  "12:00 PM", "12:30 PM", "1:00 PM", "1:30 PM", "2:00 PM", "2:30 PM",
+  "3:00 PM", "3:30 PM", "4:00 PM", "4:30 PM", "5:00 PM", "5:30 PM",
+  "6:00 PM", "6:30 PM", "7:00 PM", "7:30 PM", "8:00 PM", "8:30 PM",
+  "9:00 PM"
 ];
 
 const SUBJECT_COLORS = [
@@ -69,10 +72,13 @@ export default function ScheduleList({ theme }) {
     const day = DAYS[dayIdx];
     const timeStr = (() => {
       const time = TIME_SLOTS[timeIdx];
-      const hour = parseInt(time);
-      const isPM = time.includes("PM");
+      const [timePart, period] = time.split(" ");
+      const [hourStr, minuteStr] = timePart.split(":");
+      const hour = parseInt(hourStr);
+      const minutes = minuteStr || "00";
+      const isPM = period === "PM";
       const hour24 = isPM && hour !== 12 ? hour + 12 : (!isPM && hour === 12 ? 0 : hour);
-      return `${String(hour24).padStart(2, '0')}:00:00`;
+      return `${String(hour24).padStart(2, '0')}:${minutes}:00`;
     })();
     return sectionSchedules.find(s => s.day === day && s.time === timeStr);
   };
@@ -104,7 +110,7 @@ export default function ScheduleList({ theme }) {
             {/* Sections List */}
             <div style={{ marginBottom: 28 }}>
               <div style={{ fontSize: 11, letterSpacing: 4, color: "#64748b", textTransform: "uppercase", marginBottom: 6 }}>
-                Academic Management System
+                Web Based Class Scheduling for ACLC
               </div>
               <h1 style={{
                 margin: 0, fontSize: 28, fontWeight: 800,

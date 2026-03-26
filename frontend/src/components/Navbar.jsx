@@ -40,11 +40,11 @@ export default function Navbar({ theme, toggleTheme }) {
     }}>
       {/* Logo */}
       <div style={{ padding: "0 20px", marginBottom: 32 }}>
-        <div style={{ fontSize: 10, letterSpacing: 4, color: isLight ? "#94a3b8" : "#64748b", textTransform: "uppercase", marginBottom: 4 }}>
+        <div style={{ fontSize: 11, letterSpacing: 4, color: isLight ? "#94a3b8" : "#64748b", textTransform: "uppercase", marginBottom: 4 }}>
           Academic
         </div>
         <div style={{
-          fontSize: 18, fontWeight: 800,
+          fontSize: 22, fontWeight: 800,
           background: "linear-gradient(90deg, #60a5fa, #a78bfa)",
           WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent"
         }}>
@@ -60,7 +60,7 @@ export default function Navbar({ theme, toggleTheme }) {
             onClick={() => navigate(item.path)}
             style={{
               padding: "12px 16px", borderRadius: 10, cursor: "pointer",
-              marginBottom: 4, fontSize: 13, fontWeight: 600,
+              marginBottom: 4, fontSize: 14, fontWeight: 700,
               background: location.pathname === item.path
                 ? "rgba(96,165,250,0.15)"
                 : "transparent",
@@ -103,7 +103,7 @@ export default function Navbar({ theme, toggleTheme }) {
         <div style={{ fontSize: 11, color: isLight ? "#94a3b8" : "#64748b", marginBottom: 4 }}>
           Logged in as
         </div>
-        <div style={{ fontSize: 13, fontWeight: 700, color: isLight ? "#1e293b" : "#e2e8f0", marginBottom: 12 }}>
+        <div style={{ fontSize: 15, fontWeight: 700, color: isLight ? "#1e293b" : "#e2e8f0", marginBottom: 12 }}>
           {user?.username}
         </div>
         <button
