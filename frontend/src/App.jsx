@@ -38,7 +38,7 @@ function App() {
         } />
         <Route path="/schedules" element={
           <ProtectedRoute theme={theme} toggleTheme={toggleTheme}>
-            <ScheduleList theme={theme} />
+            <ScheduleList key={Date.now()} theme={theme} />
           </ProtectedRoute>
         } />
       </Routes>

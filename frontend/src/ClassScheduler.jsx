@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const DAY_SHORT = ["M", "T", "W", "TH", "F", "S", "SU"];
+const DAY_CODES = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
 
 const TIME_SLOTS = [
   "6:00 AM", "6:30 AM", "7:00 AM", "7:30 AM", "8:00 AM", "8:30 AM",
@@ -211,6 +212,10 @@ export default function ClassScheduler({ theme }) {
       showToast("Select a subject and instructor first!", "warn");
       return;
     }
+    if (!selectedRoom) {
+      showToast("Please select a room first!", "warn");
+      return;
+    }
     const key = getCellKey(dayIdx, timeIdx);
     if (schedule[key]) {
       showToast("Cell already occupied!", "error");
@@ -239,8 +244,9 @@ export default function ClassScheduler({ theme }) {
           instructor_id: selectedInstructor.id,
           room_id: selectedRoom?.id || null,
           class_type: selectedType,
-          day: DAYS[dayIdx],
-          start_time: timeToString(timeIdx)
+          day: DAY_CODES[dayIdx],
+          start_time: timeToString(timeIdx),
+          section_id: selectedSection?.id
         })
       });
       const data = await res.json();
@@ -385,6 +391,13 @@ export default function ClassScheduler({ theme }) {
       setDragItem(null);
       return;
     }
+
+    if (!selectedRoom) {
+      showToast("Please select a room first!", "warn");
+      setDragItem(null);
+      return;
+    }
+    
     if (schedule[key]) {
       showToast("Cell already occupied!", "error");
       setDragItem(null);
@@ -399,8 +412,9 @@ export default function ClassScheduler({ theme }) {
           instructor_id: ins.id,
           room_id: selectedRoom?.id || null,
           class_type: entryType,
-          day: DAYS[dayIdx],
-          start_time: timeToString(timeIdx)
+          day: DAY_CODES[dayIdx],
+          start_time: timeToString(timeIdx),
+          section_id: selectedSection?.id
         })
       });
       const data = await res.json();
@@ -708,7 +722,14 @@ export default function ClassScheduler({ theme }) {
                 style={{ width: "100%", padding: "6px 8px", borderRadius: 6, marginBottom: 6, border: "1px solid rgba(255,255,255,0.08)", background: "rgba(255,255,255,0.03)", color: isLight ? "#1e293b" : "#e2e8f0", fontSize: 11, outline: "none", boxSizing: "border-box" }} />
               <div style={{ maxHeight: 160, overflowY: "auto" }}>
                 {rooms.filter(r => r.room_code.toLowerCase().includes(searchRoom.toLowerCase())).map(r => (
-                  <div key={r.id} onClick={() => setSelectedRoom(selectedRoom?.id === r.id ? null : r)}
+                  <div key={r.id} onClick={() => {
+  const newRoom = selectedRoom?.id === r.id ? null : r;
+  setSelectedRoom(newRoom);
+  if (newRoom) {
+    const isSlab = newRoom.room_code.toLowerCase().includes('slab');
+    setSelectedType(isSlab ? 'LAB' : 'LEC');
+  }
+}}
                     style={{
                       padding: "8px 12px", margin: "3px 0", borderRadius: 8, cursor: "pointer",
                       background: selectedRoom?.id === r.id ? "rgba(16,185,129,0.2)" : "rgba(255,255,255,0.03)",

@@ -154,20 +154,21 @@ app.get('/api/schedules', (req, res) => {
 })
 
 // Save a schedule (draft)
+// Save a schedule (draft)
 app.post('/api/schedules', (req, res) => {
-  const { subject_id, instructor_id, room_id, class_type, day, start_time, end_time, term_id } = req.body
+  const { subject_id, instructor_id, room_id, class_type, day, start_time, term_id, section_id } = req.body
   try {
-    const stmt = db.prepare(
-      'INSERT INTO schedules (term_id, section_id, subject_id, instructor_id, room_id, day, start_time, end_time, class_type, is_draft) VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, 1)'
-    )
     // Calculate end time (add 30 minutes to start time)
-  const [h, m] = start_time.split(':').map(Number);
-  const totalMinutes = h * 60 + m + 30;
-  const endHour = Math.floor(totalMinutes / 60);
-  const endMin = totalMinutes % 60;
-  const calculated_end_time = `${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}:00`;
+    const [h, m] = start_time.split(':').map(Number);
+    const totalMinutes = h * 60 + m + 30;
+    const endHour = Math.floor(totalMinutes / 60);
+    const endMin = totalMinutes % 60;
+    const calculated_end_time = `${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}:00`;
 
-  const result = stmt.run(term_id || 1, subject_id, instructor_id, room_id || null, day, start_time, calculated_end_time, class_type || 'LEC')
+    const stmt = db.prepare(
+      'INSERT INTO schedules (term_id, section_id, subject_id, instructor_id, room_id, day, start_time, end_time, class_type, is_draft) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)'
+    )
+    const result = stmt.run(term_id || 1, section_id || null, subject_id, instructor_id, room_id || null, day, start_time, calculated_end_time, class_type || 'LEC')
     res.json({ id: result.lastInsertRowid })
   } catch (err) {
     res.status(400).json({ error: err.message })
@@ -176,6 +177,9 @@ app.post('/api/schedules', (req, res) => {
 
 // Delete a schedule
 app.delete('/api/schedules/:id', (req, res) => {
+  if (!req.params.id || isNaN(req.params.id)) {
+    return res.status(400).json({ error: 'Invalid ID' })
+  }
   db.prepare('DELETE FROM schedules WHERE id = ?').run(req.params.id)
   res.json({ success: true })
 })
