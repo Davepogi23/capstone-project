@@ -43,6 +43,19 @@ app.get('/api/subjects', (req, res) => {
   res.json(subjects)
 })
 
+// Get subjects filtered by section (program + year level)
+app.get('/api/subjects/by-section/:section_id', (req, res) => {
+  const section = db.prepare('SELECT program_id, year_level FROM sections WHERE id = ?').get(req.params.section_id)
+  if (!section) return res.json([])
+  const subjects = db.prepare(`
+    SELECT id, subject_code as code, subject_name as title
+    FROM subjects
+    WHERE program_id = ? AND year_level = ?
+    ORDER BY semester, subject_name
+  `).all(section.program_id, section.year_level)
+  res.json(subjects)
+})
+
 // ===== INSTRUCTOR ROUTES =====
 app.get('/api/instructors', (req, res) => {
   const instructors = db.prepare('SELECT id, full_name as fullname FROM instructors').all()
@@ -51,8 +64,19 @@ app.get('/api/instructors', (req, res) => {
 
 // ===== ROOM ROUTES =====
 app.get('/api/rooms', (req, res) => {
-  const rooms = db.prepare('SELECT id, room_code FROM rooms').all()
+  const rooms = db.prepare('SELECT id, room_code FROM rooms ORDER BY room_code ASC').all()
   res.json(rooms)
+})
+
+app.post('/api/rooms', (req, res) => {
+  const { room_code } = req.body
+  if (!room_code) return res.status(400).json({ error: 'room_code is required' })
+  try {
+    const result = db.prepare('INSERT INTO rooms (room_code) VALUES (?)').run(room_code)
+    res.json({ id: result.lastInsertRowid, room_code })
+  } catch (err) {
+    res.status(400).json({ error: err.message })
+  }
 })
 
 // ===== SECTION ROUTES =====

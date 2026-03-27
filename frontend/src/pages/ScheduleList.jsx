@@ -33,13 +33,14 @@ const formatTimeShort = (t) => {
 const groupSchedulesForTable = (schedules) => {
   const groups = {};
   schedules.forEach(s => {
-    const key = `${s.subject_id}-${s.instructor_id}-${s.room_id}-${s.class_type}-${s.start_time}-${s.end_time}-${s.class_no || ""}`;
+    const key = `${s.subject_id}-${s.instructor_id}-${s.room_id}-${s.class_type}-${s.class_no || ""}`;
     if (!groups[key]) {
-      groups[key] = { ...s, days: [s.day] };
+      groups[key] = { ...s, days: [s.day], ids: [s.id] };
     } else {
-      if (!groups[key].days.includes(s.day)) {
-        groups[key].days.push(s.day);
-      }
+      if (!groups[key].days.includes(s.day)) groups[key].days.push(s.day);
+      groups[key].ids.push(s.id);
+      if (s.start_time < groups[key].start_time) groups[key].start_time = s.start_time;
+      if (s.end_time > groups[key].end_time) groups[key].end_time = s.end_time;
     }
   });
   const dayOrder = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
@@ -58,6 +59,7 @@ export default function ScheduleList({ theme }) {
   const [selectedSection, setSelectedSection] = useState(null);
   const [loading, setLoading] = useState(true);
   const [printMode, setPrintMode] = useState(null);
+  const [toast, setToast] = useState(null);
   const colorMap = useRef({});
   const colorIdx = useRef(0);
 
@@ -67,6 +69,11 @@ export default function ScheduleList({ theme }) {
       colorIdx.current++;
     }
     return colorMap.current[id];
+  };
+
+  const showToast = (msg, type = "success") => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3000);
   };
 
   useEffect(() => {
@@ -95,6 +102,16 @@ export default function ScheduleList({ theme }) {
     setSections(prev => prev.filter(s => s.section_id !== sectionId));
     setSchedules(prev => prev.filter(s => s.section_id !== sectionId));
     if (selectedSection?.section_id === sectionId) setSelectedSection(null);
+  };
+
+  // Delete a single schedule entry by ID
+  const handleDeleteEntry = async (ids) => {
+    if (!confirm("Remove this schedule entry?")) return;
+    await Promise.all(ids.map(id =>
+      fetch(`${API}/schedules/${id}`, { method: "DELETE" })
+    ));
+    setSchedules(prev => prev.filter(s => !ids.includes(s.id)));
+    showToast("Entry removed!", "success");
   };
 
   const handlePrint = (mode) => {
@@ -146,6 +163,17 @@ export default function ScheduleList({ theme }) {
       fontFamily: "'Segoe UI', sans-serif",
       color: isLight ? "#1e293b" : "#e2e8f0"
     }}>
+
+      {/* Toast */}
+      {toast && (
+        <div style={{
+          position: "fixed", top: 20, right: 20, zIndex: 999,
+          background: toast.type === "success" ? "#10b981" : "#ef4444",
+          color: "white", padding: "10px 18px", borderRadius: 10,
+          fontWeight: 600, boxShadow: "0 4px 20px rgba(0,0,0,0.4)", fontSize: 13
+        }}>{toast.msg}</div>
+      )}
+
       <div style={{ flex: 1, padding: 32 }}>
 
         {/* ===== SECTIONS LIST ===== */}
@@ -244,7 +272,7 @@ export default function ScheduleList({ theme }) {
                 </div>
               </div>
 
-              {/* Two Print Buttons */}
+              {/* Print Buttons */}
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                 <button onClick={() => handlePrint('grid')} style={{
                   padding: "12px 20px", borderRadius: 10, border: "none",
@@ -264,7 +292,7 @@ export default function ScheduleList({ theme }) {
             {/* ===== GRID VIEW ===== */}
             <div className={`print-area-grid${printMode === 'table' ? ' hide-on-print' : ''}`} style={{
               background: isLight ? "white" : "rgba(255,255,255,0.04)", borderRadius: 16,
-              border: isLight ? "1px solid #e2e8f0" : "1px solid rgba(255,255,255,0.08)",
+              border: isLight ? "1px solid #cbd5e1" : "1px solid rgba(255,255,255,0.08)",
               overflow: "hidden", marginBottom: 24,
               boxShadow: isLight ? "0 1px 3px rgba(0,0,0,0.08)" : "none"
             }}>
@@ -297,9 +325,9 @@ export default function ScheduleList({ theme }) {
                         <tr key={tIdx}>
                           <td style={{
                             padding: "6px 8px", fontSize: 11,
-                            color: isLight ? "#64748b" : "#94a3b8",
-                            borderBottom: "1px solid rgba(255,255,255,0.05)",
-                            borderRight: "1px solid rgba(255,255,255,0.08)",
+                            color: isLight ? "#475569" : "#94a3b8",
+                            borderBottom: isLight ? "1px solid #e2e8f0" : "1px solid rgba(255,255,255,0.05)",
+                            borderRight: isLight ? "1px solid #e2e8f0" : "1px solid rgba(255,255,255,0.08)",
                             textAlign: "center", whiteSpace: "nowrap", fontWeight: 600
                           }}>{time}</td>
                           {DAYS.map((_, dIdx) => {
@@ -307,7 +335,8 @@ export default function ScheduleList({ theme }) {
                             const color = entry ? getColor(entry.subject_id) : null;
                             return (
                               <td key={dIdx} style={{
-                                padding: 3, border: "1px solid rgba(255,255,255,0.05)",
+                                padding: 3,
+                                border: isLight ? "1px solid #e2e8f0" : "1px solid rgba(255,255,255,0.05)",
                                 height: 60, minWidth: 100, verticalAlign: "top",
                                 background: entry ? `${color}22` : "transparent"
                               }}>
@@ -317,7 +346,8 @@ export default function ScheduleList({ theme }) {
                                     border: `1.5px solid ${color}88`,
                                     borderLeft: `4px solid ${color}`,
                                     borderRadius: 6, padding: "4px 6px",
-                                    height: "100%", boxSizing: "border-box"
+                                    height: "100%", boxSizing: "border-box",
+                                    position: "relative"
                                   }}>
                                     <div style={{ fontSize: 11, fontWeight: 700, color, lineHeight: 1.2 }}>{entry.subject_title}</div>
                                     <div style={{ fontSize: 9, color: isLight ? "#475569" : "#cbd5e1", lineHeight: 1.2, marginTop: 1 }}>{entry.instructor_name}</div>
@@ -328,6 +358,18 @@ export default function ScheduleList({ theme }) {
                                       fontSize: 8, fontWeight: 700, marginTop: 2,
                                       color: entry.class_type === "LAB" ? "#f472b6" : "#60a5fa"
                                     }}>{entry.class_type || "LEC"}</div>
+                                    {/* Delete button on grid cell */}
+                                    <button
+                                      className="no-print"
+                                      onClick={() => handleDeleteEntry([entry.id])}
+                                      style={{
+                                        position: "absolute", top: 2, right: 2,
+                                        background: "rgba(239,68,68,0.3)", border: "none",
+                                        color: "#fca5a5", borderRadius: 3,
+                                        width: 14, height: 14, cursor: "pointer",
+                                        fontSize: 9, lineHeight: 1,
+                                        display: "flex", alignItems: "center", justifyContent: "center", padding: 0
+                                      }}>✕</button>
                                   </div>
                                 )}
                               </td>
@@ -344,14 +386,16 @@ export default function ScheduleList({ theme }) {
             {/* ===== TABLE VIEW ===== */}
             <div className={`print-area-table${printMode === 'grid' ? ' hide-on-print' : ''}`} style={{
               background: isLight ? "white" : "rgba(255,255,255,0.04)", borderRadius: 16,
-              border: isLight ? "1px solid #e2e8f0" : "1px solid rgba(255,255,255,0.08)",
+              border: isLight ? "1px solid #cbd5e1" : "1px solid rgba(255,255,255,0.08)",
               overflow: "hidden",
               boxShadow: isLight ? "0 1px 3px rgba(0,0,0,0.08)" : "none"
             }}>
-              <div style={{ padding: "14px 20px", borderBottom: isLight ? "1px solid #e2e8f0" : "1px solid rgba(255,255,255,0.08)" }}
-                className="no-print">
+              <div className="no-print" style={{ padding: "14px 20px", borderBottom: isLight ? "1px solid #e2e8f0" : "1px solid rgba(255,255,255,0.08)" }}>
                 <div style={{ fontSize: 13, fontWeight: 800, color: isLight ? "#1e293b" : "#e2e8f0" }}>
                   📋 {selectedSection.section} — Official Schedule Table
+                  <span style={{ fontSize: 11, fontWeight: 400, color: "#64748b", marginLeft: 10 }}>
+                    Click 🗑️ to remove a wrong entry
+                  </span>
                 </div>
               </div>
               <div className="print-only-table" style={{ display: "none", padding: "16px 20px 8px" }}>
@@ -362,12 +406,14 @@ export default function ScheduleList({ theme }) {
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                   <thead>
                     <tr style={{ background: isLight ? "#f1f5f9" : "rgba(96,165,250,0.15)" }}>
-                      {["SUBJECT CODE", "SUBJECT TITLE", "TIME", "DAYS", "ROOM", "INSTRUCTOR", "CLASS NO."].map((col, i) => (
+                      {["SUBJECT CODE", "SUBJECT TITLE", "TIME", "DAYS", "ROOM", "INSTRUCTOR", "CLASS NO.", ""].map((col, i) => (
                         <th key={i} style={{
                           padding: "10px 12px",
                           border: isLight ? "1px solid #cbd5e1" : "1px solid rgba(255,255,255,0.1)",
                           textAlign: "left", fontWeight: 700, fontSize: 11,
-                          color: isLight ? "#1e293b" : "#e2e8f0", whiteSpace: "nowrap"
+                          color: isLight ? "#1e293b" : "#e2e8f0", whiteSpace: "nowrap",
+                          // Hide the last column (delete) when printing
+                          ...(i === 7 ? { display: "table-cell" } : {})
                         }}>{col}</th>
                       ))}
                     </tr>
@@ -375,7 +421,7 @@ export default function ScheduleList({ theme }) {
                   <tbody>
                     {tableRows.length === 0 ? (
                       <tr>
-                        <td colSpan={7} style={{ padding: 30, textAlign: "center", color: "#64748b" }}>No schedules found.</td>
+                        <td colSpan={8} style={{ padding: 30, textAlign: "center", color: "#64748b" }}>No schedules found.</td>
                       </tr>
                     ) : tableRows.map((row, i) => (
                       <tr key={i} style={{
@@ -404,6 +450,18 @@ export default function ScheduleList({ theme }) {
                         <td style={{ ...tdStyle(isLight), textAlign: "center", fontWeight: 700, color: "#60a5fa" }}>
                           {row.class_no || "—"}
                         </td>
+                        {/* Delete button — hidden when printing */}
+                        <td className="no-print" style={{ ...tdStyle(isLight), textAlign: "center", padding: "4px 8px" }}>
+                          <button
+                            onClick={() => handleDeleteEntry(row.ids)}
+                            title="Remove this entry"
+                            style={{
+                              background: "rgba(239,68,68,0.15)", border: "none",
+                              color: "#fca5a5", borderRadius: 6, padding: "4px 8px",
+                              cursor: "pointer", fontSize: 11, fontWeight: 600
+                            }}
+                          >🗑️</button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -416,26 +474,38 @@ export default function ScheduleList({ theme }) {
 
       <style>{`
         @media print {
+          /* Force white background always regardless of theme */
+          body, html { background: white !important; color: black !important; }
           body * { visibility: hidden; }
 
+          /* Grid print */
           .print-area-grid, .print-area-grid * { visibility: visible; }
           .print-area-grid {
             position: fixed !important; top: 0 !important; left: 0 !important;
             width: 100% !important; background: white !important;
-            color: black !important; border: none !important; border-radius: 0 !important;
+            color: black !important; border: 1px solid #ccc !important;
+            border-radius: 0 !important;
           }
           .print-only-grid { display: block !important; }
 
+          /* Table print */
           .print-area-table, .print-area-table * { visibility: visible; }
           .print-area-table {
             position: fixed !important; top: 0 !important; left: 0 !important;
             width: 100% !important; background: white !important;
-            color: black !important; border: none !important; border-radius: 0 !important;
+            color: black !important; border: 1px solid #ccc !important;
+            border-radius: 0 !important;
           }
           .print-only-table { display: block !important; }
 
+          /* Hide delete buttons and non-print elements */
           .hide-on-print { display: none !important; visibility: hidden !important; }
           .no-print { display: none !important; }
+
+          /* Force table borders visible on print */
+          table, th, td { border: 1px solid #ccc !important; color: black !important; }
+          th { background: #f0f0f0 !important; }
+
           * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
         }
       `}</style>
@@ -445,7 +515,8 @@ export default function ScheduleList({ theme }) {
 
 const thStyle = (isLight) => ({
   padding: "10px 6px", fontSize: 11, fontWeight: 700,
-  borderBottom: isLight ? "1px solid #e2e8f0" : "1px solid rgba(255,255,255,0.1)",
+  borderBottom: isLight ? "1px solid #cbd5e1" : "1px solid rgba(255,255,255,0.1)",
+  border: isLight ? "1px solid #cbd5e1" : "1px solid rgba(255,255,255,0.08)",
   textAlign: "center", color: isLight ? "#1e293b" : "#e2e8f0", letterSpacing: 0.5
 });
 

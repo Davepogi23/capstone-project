@@ -27,6 +27,7 @@ export default function ClassScheduler({ theme }) {
   const [rooms, setRooms] = useState([]);
   const [selectedRoom, setSelectedRoom] = useState(null);
   const [searchRoom, setSearchRoom] = useState("");
+  const [newRoom, setNewRoom] = useState("");
   const [terms, setTerms] = useState([]);
   const [selectedTerm, setSelectedTerm] = useState(null);
   const isLight = theme === "light";
@@ -65,8 +66,11 @@ export default function ClassScheduler({ theme }) {
     };
   }, []);
 
-  const fetchSubjects = async () => {
-    const res = await fetch(`${API}/subjects`);
+  const fetchSubjects = async (sectionId = null) => {
+    const url = sectionId
+      ? `${API}/subjects/by-section/${sectionId}`
+      : `${API}/subjects`;
+    const res = await fetch(url);
     const data = await res.json();
     setSubjects(data);
   };
@@ -329,6 +333,26 @@ export default function ClassScheduler({ theme }) {
     showToast("Instructor deleted!", "success");
   };
 
+  const handleAddRoom = async () => {
+  if (!newRoom.trim()) return;
+  const res = await fetch(`${API}/rooms`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ room_code: newRoom.trim().toUpperCase() })
+  });
+  const data = await res.json();
+  setRooms(prev => [...prev, data].sort((a, b) => a.room_code.localeCompare(b.room_code)));
+  setNewRoom("");
+  showToast("Room added!", "success");
+};
+
+  const handleDeleteRoom = async (id) => {
+  await fetch(`${API}/rooms/${id}`, { method: "DELETE" });
+  setRooms(prev => prev.filter(r => r.id !== id));
+  if (selectedRoom?.id === id) setSelectedRoom(null);
+  showToast("Room deleted!", "success");
+};
+
   const handleCreateSchedule = async () => {
     if (!selectedSection) {
       showToast("Please select a section first!", "warn");
@@ -397,7 +421,7 @@ export default function ClassScheduler({ theme }) {
       setDragItem(null);
       return;
     }
-    
+
     if (schedule[key]) {
       showToast("Cell already occupied!", "error");
       setDragItem(null);
@@ -490,6 +514,12 @@ export default function ClassScheduler({ theme }) {
               onChange={e => {
                 const sec = sections.find(s => s.id === parseInt(e.target.value));
                 setSelectedSection(sec || null);
+                setSelectedSubject(null);
+                if (sec) {
+                  fetchSubjects(sec.id); // ✅ fetch only subjects for this section
+                } else {
+                  fetchSubjects(); // ✅ show all if no section selected
+                }
               }}
               style={{
                 flex: 1, background: "transparent", border: "none",
@@ -555,9 +585,9 @@ export default function ClassScheduler({ theme }) {
             <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 700 }}>
               <thead>
                 <tr>
-                  <th style={{ ...thStyle, width: 90, background: "rgba(96,165,250,0.15)" }}>Time</th>
+                  <th style={{ ...thStyle(isLight), width: 90, background: "rgba(96,165,250,0.15)" }}>Time</th>
                   {DAYS.map((d, i) => (
-                    <th key={i} style={{ ...thStyle, background: "rgba(96,165,250,0.1)" }}>
+                    <th key={i} style={{ ...thStyle(isLight), background: "rgba(96,165,250,0.1)" }}>
                       <div style={{ fontWeight: 700 }}>{DAY_SHORT[i]}</div>
                       <div style={{ fontSize: 9, color: "#94a3b8", fontWeight: 400 }}>{d.slice(0, 3)}</div>
                     </th>
@@ -569,8 +599,8 @@ export default function ClassScheduler({ theme }) {
                   <tr key={tIdx}>
                     <td style={{
                       padding: "6px 8px", fontSize: 11, color: "#94a3b8",
-                      borderBottom: "1px solid rgba(255,255,255,0.05)",
-                      borderRight: "1px solid rgba(255,255,255,0.08)",
+                      borderBottom: isLight ? "1px solid #e2e8f0" : "1px solid rgba(255,255,255,0.05)",
+                      borderRight: isLight ? "1px solid #e2e8f0" : "1px solid rgba(255,255,255,0.08)",
                       textAlign: "center", whiteSpace: "nowrap", fontWeight: 600
                     }}>{time}</td>
                     {DAYS.map((_, dIdx) => {
@@ -585,7 +615,7 @@ export default function ClassScheduler({ theme }) {
                           onDragLeave={() => setHoveredCell(null)}
                           onDrop={(e) => !isLocked && handleDrop(dIdx, tIdx, e)}
                           style={{
-                            padding: 3, border: "1px solid rgba(255,255,255,0.05)",
+                            padding: 3, border: isLight ? "1px solid #e2e8f0" : "1px solid rgba(255,255,255,0.05)",
                             height: 52, minWidth: 90,
                             cursor: entry ? "default" : "pointer",
                             background: isHovered && !entry ? "rgba(96,165,250,0.2)" : entry ? `${color}22` : "transparent",
@@ -645,7 +675,7 @@ export default function ClassScheduler({ theme }) {
 
           {/* Subjects Panel */}
           <div style={{ ...panelStyle(isLight) }}>
-            <div style={panelHeader("#3b82f6")}><span>📚</span> Subjects</div>
+            <div style={panelHeader("#3b82f6", isLight)}><span>📚</span> Subjects</div>
             <div style={{ padding: "8px" }}>
               <div style={{ display: "flex", gap: 4, marginBottom: 6 }}>
                 <input placeholder="Add subject..." value={newSubject}
@@ -671,7 +701,7 @@ export default function ClassScheduler({ theme }) {
                     }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: getSubjectColor(s.id) }}>{s.title}</div>
                     <button onClick={(e) => { e.stopPropagation(); handleDeleteSubject(s.id); }}
-                      style={{ background: "rgba(239,68,68,0.2)", border: "none", color: "#fca5a5", borderRadius: 3, width: 16, height: 16, cursor: "pointer", fontSize: 9, display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>✕</button>
+                      style={{ background: "rgba(239,68,68,0.2)", border: "none", color: "#fca5a5", borderRadius: 4, width: 18, height: 18, cursor: "pointer", fontSize: 10, display: "flex", alignItems: "center", justifyContent: "center", padding: 0, flexShrink: 0 }}>✕</button>
                   </div>
                 ))}
               </div>
@@ -680,7 +710,7 @@ export default function ClassScheduler({ theme }) {
 
           {/* Instructors Panel */}
           <div style={{ ...panelStyle(isLight) }}>
-            <div style={panelHeader("#8b5cf6")}><span>👨‍🏫</span> Instructors</div>
+            <div style={panelHeader("#8b5cf6", isLight)}><span>👨‍🏫</span> Instructors</div>
             <div style={{ padding: "8px" }}>
               <div style={{ display: "flex", gap: 4, marginBottom: 6 }}>
                 <input placeholder="Add instructor..." value={newInstructor}
@@ -715,29 +745,40 @@ export default function ClassScheduler({ theme }) {
 
           {/* Rooms Panel */}
           <div style={{ ...panelStyle(isLight) }}>
-            <div style={panelHeader("#10b981")}><span>🚪</span> Rooms</div>
+            <div style={panelHeader("#10b981", isLight)}><span>🚪</span> Rooms</div>
             <div style={{ padding: "8px" }}>
+              {/* Add Room Input */}
+              <div style={{ display: "flex", gap: 4, marginBottom: 6 }}>
+                <input placeholder="Add room..." value={newRoom}
+                  onChange={e => setNewRoom(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && handleAddRoom()}
+                  style={{ flex: 1, padding: "6px 8px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.05)", color: isLight ? "#1e293b" : "#e2e8f0", fontSize: 11, outline: "none" }} />
+                <button onClick={handleAddRoom} style={{ padding: "6px 10px", borderRadius: 6, border: "none", background: "rgba(16,185,129,0.3)", color: "#6ee7b7", cursor: "pointer", fontSize: 14, fontWeight: 700 }}>+</button>
+              </div>
               <input placeholder="🔍 Search room..." value={searchRoom}
                 onChange={e => setSearchRoom(e.target.value)}
                 style={{ width: "100%", padding: "6px 8px", borderRadius: 6, marginBottom: 6, border: "1px solid rgba(255,255,255,0.08)", background: "rgba(255,255,255,0.03)", color: isLight ? "#1e293b" : "#e2e8f0", fontSize: 11, outline: "none", boxSizing: "border-box" }} />
               <div style={{ maxHeight: 160, overflowY: "auto" }}>
                 {rooms.filter(r => r.room_code.toLowerCase().includes(searchRoom.toLowerCase())).map(r => (
                   <div key={r.id} onClick={() => {
-  const newRoom = selectedRoom?.id === r.id ? null : r;
-  setSelectedRoom(newRoom);
-  if (newRoom) {
-    const isSlab = newRoom.room_code.toLowerCase().includes('slab');
-    setSelectedType(isSlab ? 'LAB' : 'LEC');
-  }
-}}
+                    const newRoom = selectedRoom?.id === r.id ? null : r;
+                    setSelectedRoom(newRoom);
+                    if (newRoom) {
+                      const isSlab = newRoom.room_code.toLowerCase().includes('slab');
+                      setSelectedType(isSlab ? 'LAB' : 'LEC');
+                    }
+                  }}
                     style={{
                       padding: "8px 12px", margin: "3px 0", borderRadius: 8, cursor: "pointer",
                       background: selectedRoom?.id === r.id ? "rgba(16,185,129,0.2)" : "rgba(255,255,255,0.03)",
                       border: selectedRoom?.id === r.id ? "1.5px solid rgba(16,185,129,0.6)" : "1.5px solid transparent",
                       borderLeft: "4px solid rgba(16,185,129,0.7)", transition: "all 0.15s",
+                      display: "flex", alignItems: "center", justifyContent: "space-between",
                     }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: isLight ? "#059669" : "#6ee7b7" }}>{r.room_code}</div>
-                  </div>
+                    <button onClick={(e) => { e.stopPropagation(); handleDeleteRoom(r.id); }}
+                      style={{ background: "rgba(239,68,68,0.2)", border: "none", color: "#fca5a5", borderRadius: 4, width: 18, height: 18, cursor: "pointer", fontSize: 10, display: "flex", alignItems: "center", justifyContent: "center", padding: 0, flexShrink: 0 }}>✕</button>
+                    </div>
                 ))}
               </div>
             </div>
@@ -806,11 +847,13 @@ export default function ClassScheduler({ theme }) {
   );
 }
 
-const thStyle = {
+const thStyle = (isLight) => ({
   padding: "10px 6px", fontSize: 11, fontWeight: 700,
-  borderBottom: "1px solid rgba(255,255,255,0.1)",
-  textAlign: "center", color: "#e2e8f0", letterSpacing: 0.5
-};
+  borderBottom: isLight ? "1px solid #cbd5e1" : "1px solid rgba(255,255,255,0.1)",
+  textAlign: "center",
+  color: isLight ? "#1e293b" : "#e2e8f0",
+  letterSpacing: 0.5
+});
 
 const panelStyle = (isLight) => ({
   background: isLight ? "white" : "rgba(255,255,255,0.04)", borderRadius: 12,
@@ -818,9 +861,10 @@ const panelStyle = (isLight) => ({
   boxShadow: isLight ? "0 1px 3px rgba(0,0,0,0.08)" : "none"
 });
 
-const panelHeader = (color) => ({
+const panelHeader = (color, isLight) => ({
   padding: "10px 12px", background: `${color}22`,
-  borderBottom: "1px solid rgba(255,255,255,0.06)",
-  fontSize: 12, fontWeight: 700, color: "#e2e8f0",
+  borderBottom: isLight ? "1px solid #e2e8f0" : "1px solid rgba(255,255,255,0.06)",
+  fontSize: 12, fontWeight: 700,
+  color: isLight ? "#1e293b" : "#e2e8f0",
   letterSpacing: 0.5, display: "flex", alignItems: "center", gap: 6
 });
