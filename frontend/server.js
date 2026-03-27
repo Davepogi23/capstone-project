@@ -139,6 +139,7 @@ app.get('/api/schedules', (req, res) => {
     SELECT 
       s.*,
       sub.subject_name as subject_title,
+      sub.subject_code,
       i.full_name as instructor_name,
       r.room_code,
       sc.section_name

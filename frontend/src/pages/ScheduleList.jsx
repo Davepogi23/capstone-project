@@ -20,12 +20,44 @@ const SUBJECT_COLORS = [
   "#F59E0B", "#EF4444", "#6366F1", "#84CC16"
 ];
 
+const formatTimeShort = (t) => {
+  if (!t) return "";
+  const [hStr, mStr] = t.split(":");
+  let h = parseInt(hStr);
+  const m = mStr || "00";
+  if (h > 12) h -= 12;
+  if (h === 0) h = 12;
+  return `${h}:${m}`;
+};
+
+const groupSchedulesForTable = (schedules) => {
+  const groups = {};
+  schedules.forEach(s => {
+    const key = `${s.subject_id}-${s.instructor_id}-${s.room_id}-${s.class_type}-${s.start_time}-${s.end_time}-${s.class_no || ""}`;
+    if (!groups[key]) {
+      groups[key] = { ...s, days: [s.day] };
+    } else {
+      if (!groups[key].days.includes(s.day)) {
+        groups[key].days.push(s.day);
+      }
+    }
+  });
+  const dayOrder = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
+  return Object.values(groups).map(g => ({
+    ...g,
+    daysFormatted: g.days
+      .sort((a, b) => dayOrder.indexOf(a) - dayOrder.indexOf(b))
+      .join("/")
+  })).sort((a, b) => a.start_time.localeCompare(b.start_time));
+};
+
 export default function ScheduleList({ theme }) {
   const isLight = theme === "light";
   const [sections, setSections] = useState([]);
   const [schedules, setSchedules] = useState([]);
   const [selectedSection, setSelectedSection] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [printMode, setPrintMode] = useState(null);
   const colorMap = useRef({});
   const colorIdx = useRef(0);
 
@@ -65,16 +97,20 @@ export default function ScheduleList({ theme }) {
     if (selectedSection?.section_id === sectionId) setSelectedSection(null);
   };
 
-  const handlePrint = () => {
-    window.print();
+  const handlePrint = (mode) => {
+    setPrintMode(mode);
+    setTimeout(() => {
+      window.print();
+      setTimeout(() => setPrintMode(null), 500);
+    }, 300);
   };
 
-  // Filter schedules for the currently selected section
   const sectionSchedules = selectedSection
     ? schedules.filter(s => s.section_id === selectedSection.section_id)
     : [];
 
-  // Convert a TIME_SLOTS index to a 24h "HH:MM" string for matching DB start_time
+  const tableRows = groupSchedulesForTable(sectionSchedules);
+
   const timeIdxToStr = (timeIdx) => {
     const time = TIME_SLOTS[timeIdx];
     const [timePart, period] = time.split(" ");
@@ -85,7 +121,6 @@ export default function ScheduleList({ theme }) {
     return `${String(hour24).padStart(2, '0')}:${minuteStr || "00"}`;
   };
 
-  // Find the schedule entry for a given day/time cell
   const getCell = (dayIdx, timeIdx) => {
     const dayCode = DAY_CODES[dayIdx];
     const timeStr = timeIdxToStr(timeIdx);
@@ -94,15 +129,11 @@ export default function ScheduleList({ theme }) {
     );
   };
 
-  // Only render rows that have at least one entry
-  const hasContent = (timeIdx) => {
-    return DAYS.some((_, dIdx) => getCell(dIdx, timeIdx));
-  };
+  const hasContent = (timeIdx) => DAYS.some((_, dIdx) => getCell(dIdx, timeIdx));
 
   if (loading) return (
     <div style={{
-      minHeight: "100vh", display: "flex", alignItems: "center",
-      justifyContent: "center",
+      minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
       background: "linear-gradient(135deg, #0f0c29, #302b63, #24243e)",
       color: "#e2e8f0", fontSize: 20
     }}>Loading...</div>
@@ -115,10 +146,11 @@ export default function ScheduleList({ theme }) {
       fontFamily: "'Segoe UI', sans-serif",
       color: isLight ? "#1e293b" : "#e2e8f0"
     }}>
-      <div style={{ flex: 1, padding: 32, color: isLight ? "#1e293b" : "#e2e8f0" }}>
+      <div style={{ flex: 1, padding: 32 }}>
+
+        {/* ===== SECTIONS LIST ===== */}
         {!selectedSection ? (
           <>
-            {/* Sections List */}
             <div style={{ marginBottom: 28 }}>
               <div style={{ fontSize: 11, letterSpacing: 4, color: "#64748b", textTransform: "uppercase", marginBottom: 6 }}>
                 Web Based Class Scheduling for ACLC
@@ -127,9 +159,7 @@ export default function ScheduleList({ theme }) {
                 margin: 0, fontSize: 28, fontWeight: 800,
                 background: "linear-gradient(90deg, #60a5fa, #a78bfa, #f472b6)",
                 WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent"
-              }}>
-                Schedules List
-              </h1>
+              }}>Schedules List</h1>
               <div style={{ fontSize: 13, color: "#64748b", marginTop: 4 }}>
                 {sections.length} section{sections.length !== 1 ? "s" : ""} total
               </div>
@@ -148,17 +178,13 @@ export default function ScheduleList({ theme }) {
             ) : (
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16 }}>
                 {sections.map(sec => (
-                  <div
-                    key={sec.section_id}
-                    style={{
-                      background: isLight ? "white" : "rgba(255,255,255,0.04)",
-                      border: isLight ? "1px solid #e2e8f0" : "1px solid rgba(255,255,255,0.08)",
-                      borderRadius: 16, padding: 20,
-                      transition: "all 0.2s",
-                      borderLeft: "4px solid #60a5fa",
-                      boxShadow: isLight ? "0 1px 3px rgba(0,0,0,0.08)" : "none"
-                    }}
-                  >
+                  <div key={sec.section_id} style={{
+                    background: isLight ? "white" : "rgba(255,255,255,0.04)",
+                    border: isLight ? "1px solid #e2e8f0" : "1px solid rgba(255,255,255,0.08)",
+                    borderRadius: 16, padding: 20, transition: "all 0.2s",
+                    borderLeft: "4px solid #60a5fa",
+                    boxShadow: isLight ? "0 1px 3px rgba(0,0,0,0.08)" : "none"
+                  }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
                       <div>
                         <div style={{ fontSize: 18, fontWeight: 800, color: isLight ? "#1e293b" : "#e2e8f0", marginBottom: 4 }}>
@@ -188,18 +214,17 @@ export default function ScheduleList({ theme }) {
                         background: "linear-gradient(90deg, #3b82f6, #8b5cf6)",
                         color: "white", fontSize: 12, fontWeight: 700, cursor: "pointer"
                       }}
-                    >
-                      View Schedule →
-                    </button>
+                    >View Schedule →</button>
                   </div>
                 ))}
               </div>
             )}
           </>
+
         ) : (
           <>
-            {/* Section Grid View */}
-            <div className="no-print" style={{ marginBottom: 20, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            {/* ===== SCHEDULE VIEW HEADER ===== */}
+            <div className="no-print" style={{ marginBottom: 20, display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
               <div>
                 <button
                   onClick={() => setSelectedSection(null)}
@@ -213,44 +238,44 @@ export default function ScheduleList({ theme }) {
                   margin: 0, fontSize: 28, fontWeight: 800,
                   background: "linear-gradient(90deg, #60a5fa, #a78bfa)",
                   WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent"
-                }}>
-                  {selectedSection.section}
-                </h1>
+                }}>{selectedSection.section}</h1>
                 <div style={{ fontSize: 13, color: "#64748b", marginTop: 4 }}>
                   {sectionSchedules.length} subjects scheduled
                 </div>
               </div>
-              <button
-                onClick={handlePrint}
-                style={{
-                  padding: "12px 24px", borderRadius: 10, border: "none",
+
+              {/* Two Print Buttons */}
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <button onClick={() => handlePrint('grid')} style={{
+                  padding: "12px 20px", borderRadius: 10, border: "none",
+                  background: "linear-gradient(90deg, #3b82f6, #8b5cf6)",
+                  color: "white", fontSize: 13, fontWeight: 700,
+                  cursor: "pointer", display: "flex", alignItems: "center", gap: 8
+                }}>🗓️ Print Grid View</button>
+                <button onClick={() => handlePrint('table')} style={{
+                  padding: "12px 20px", borderRadius: 10, border: "none",
                   background: "linear-gradient(90deg, #10b981, #059669)",
                   color: "white", fontSize: 13, fontWeight: 700,
                   cursor: "pointer", display: "flex", alignItems: "center", gap: 8
-                }}
-              >
-                🖨️ Print / Save PDF
-              </button>
+                }}>📋 Print Table View</button>
+              </div>
             </div>
 
-            {/* Print Header - only shows when printing */}
-            <div className="print-only" style={{ display: "none", textAlign: "center", marginBottom: 20 }}>
-              <h2 style={{ margin: 0, fontSize: 20 }}>Class Schedule — {selectedSection.section}</h2>
-              <p style={{ margin: "4px 0", fontSize: 12, color: "#666" }}>
-                Printed on {new Date().toLocaleDateString()}
-              </p>
-            </div>
-
-            {/* Schedule Grid */}
-            <div className="print-area" style={{
+            {/* ===== GRID VIEW ===== */}
+            <div className={`print-area-grid${printMode === 'table' ? ' hide-on-print' : ''}`} style={{
               background: isLight ? "white" : "rgba(255,255,255,0.04)", borderRadius: 16,
-              border: isLight ? "1px solid #e2e8f0" : "1px solid rgba(255,255,255,0.08)", overflow: "hidden",
+              border: isLight ? "1px solid #e2e8f0" : "1px solid rgba(255,255,255,0.08)",
+              overflow: "hidden", marginBottom: 24,
               boxShadow: isLight ? "0 1px 3px rgba(0,0,0,0.08)" : "none"
             }}>
+              <div className="print-only-grid" style={{ display: "none", textAlign: "center", padding: "16px 0 8px" }}>
+                <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>Class Schedule — {selectedSection.section}</h2>
+                <p style={{ margin: "4px 0", fontSize: 11, color: "#666" }}>Printed on {new Date().toLocaleDateString('en-PH')}</p>
+              </div>
               {sectionSchedules.length === 0 ? (
                 <div style={{ padding: 40, textAlign: "center", color: "#475569" }}>
                   <div style={{ fontSize: 32, marginBottom: 12 }}>📭</div>
-                  <div style={{ fontSize: 14 }}>No schedules found for this section.</div>
+                  <div>No schedules found.</div>
                 </div>
               ) : (
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -294,23 +319,15 @@ export default function ScheduleList({ theme }) {
                                     borderRadius: 6, padding: "4px 6px",
                                     height: "100%", boxSizing: "border-box"
                                   }}>
-                                    <div style={{ fontSize: 11, fontWeight: 700, color, lineHeight: 1.2 }}>
-                                      {entry.subject_title}
-                                    </div>
-                                    <div style={{ fontSize: 9, color: isLight ? "#475569" : "#cbd5e1", lineHeight: 1.2, marginTop: 1 }}>
-                                      {entry.instructor_name}
-                                    </div>
+                                    <div style={{ fontSize: 11, fontWeight: 700, color, lineHeight: 1.2 }}>{entry.subject_title}</div>
+                                    <div style={{ fontSize: 9, color: isLight ? "#475569" : "#cbd5e1", lineHeight: 1.2, marginTop: 1 }}>{entry.instructor_name}</div>
                                     {entry.room_code && (
-                                      <div style={{ fontSize: 8, color: "#94a3b8", marginTop: 1 }}>
-                                        🚪 {entry.room_code}
-                                      </div>
+                                      <div style={{ fontSize: 8, color: "#94a3b8", marginTop: 1 }}>🚪 {entry.room_code}</div>
                                     )}
                                     <div style={{
                                       fontSize: 8, fontWeight: 700, marginTop: 2,
                                       color: entry.class_type === "LAB" ? "#f472b6" : "#60a5fa"
-                                    }}>
-                                      {entry.class_type || "LEC"}
-                                    </div>
+                                    }}>{entry.class_type || "LEC"}</div>
                                   </div>
                                 )}
                               </td>
@@ -323,6 +340,76 @@ export default function ScheduleList({ theme }) {
                 </table>
               )}
             </div>
+
+            {/* ===== TABLE VIEW ===== */}
+            <div className={`print-area-table${printMode === 'grid' ? ' hide-on-print' : ''}`} style={{
+              background: isLight ? "white" : "rgba(255,255,255,0.04)", borderRadius: 16,
+              border: isLight ? "1px solid #e2e8f0" : "1px solid rgba(255,255,255,0.08)",
+              overflow: "hidden",
+              boxShadow: isLight ? "0 1px 3px rgba(0,0,0,0.08)" : "none"
+            }}>
+              <div style={{ padding: "14px 20px", borderBottom: isLight ? "1px solid #e2e8f0" : "1px solid rgba(255,255,255,0.08)" }}
+                className="no-print">
+                <div style={{ fontSize: 13, fontWeight: 800, color: isLight ? "#1e293b" : "#e2e8f0" }}>
+                  📋 {selectedSection.section} — Official Schedule Table
+                </div>
+              </div>
+              <div className="print-only-table" style={{ display: "none", padding: "16px 20px 8px" }}>
+                <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>{selectedSection.section}</h2>
+                <p style={{ margin: "4px 0", fontSize: 11, color: "#666" }}>Printed on {new Date().toLocaleDateString('en-PH')}</p>
+              </div>
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ background: isLight ? "#f1f5f9" : "rgba(96,165,250,0.15)" }}>
+                      {["SUBJECT CODE", "SUBJECT TITLE", "TIME", "DAYS", "ROOM", "INSTRUCTOR", "CLASS NO."].map((col, i) => (
+                        <th key={i} style={{
+                          padding: "10px 12px",
+                          border: isLight ? "1px solid #cbd5e1" : "1px solid rgba(255,255,255,0.1)",
+                          textAlign: "left", fontWeight: 700, fontSize: 11,
+                          color: isLight ? "#1e293b" : "#e2e8f0", whiteSpace: "nowrap"
+                        }}>{col}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tableRows.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} style={{ padding: 30, textAlign: "center", color: "#64748b" }}>No schedules found.</td>
+                      </tr>
+                    ) : tableRows.map((row, i) => (
+                      <tr key={i} style={{
+                        background: i % 2 === 0
+                          ? (isLight ? "white" : "transparent")
+                          : (isLight ? "#f8fafc" : "rgba(255,255,255,0.02)")
+                      }}>
+                        <td style={tdStyle(isLight)}>{row.subject_code || "—"}</td>
+                        <td style={tdStyle(isLight)}>
+                          {row.subject_title}
+                          {row.class_type && (
+                            <span style={{
+                              marginLeft: 6, fontSize: 9, fontWeight: 700,
+                              padding: "1px 5px", borderRadius: 4,
+                              background: row.class_type === "LAB" ? "rgba(244,114,182,0.2)" : "rgba(96,165,250,0.2)",
+                              color: row.class_type === "LAB" ? "#f472b6" : "#60a5fa"
+                            }}>{row.class_type}</span>
+                          )}
+                        </td>
+                        <td style={{ ...tdStyle(isLight), whiteSpace: "nowrap" }}>
+                          {formatTimeShort(row.start_time)}–{formatTimeShort(row.end_time)}
+                        </td>
+                        <td style={{ ...tdStyle(isLight), whiteSpace: "nowrap" }}>{row.daysFormatted}</td>
+                        <td style={tdStyle(isLight)}>{row.room_code || "—"}</td>
+                        <td style={tdStyle(isLight)}>{row.instructor_name || "—"}</td>
+                        <td style={{ ...tdStyle(isLight), textAlign: "center", fontWeight: 700, color: "#60a5fa" }}>
+                          {row.class_no || "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </>
         )}
       </div>
@@ -330,17 +417,25 @@ export default function ScheduleList({ theme }) {
       <style>{`
         @media print {
           body * { visibility: hidden; }
-          .print-area, .print-area * { visibility: visible; }
-          .print-area {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            background: white !important;
-            color: black !important;
+
+          .print-area-grid, .print-area-grid * { visibility: visible; }
+          .print-area-grid {
+            position: fixed !important; top: 0 !important; left: 0 !important;
+            width: 100% !important; background: white !important;
+            color: black !important; border: none !important; border-radius: 0 !important;
           }
+          .print-only-grid { display: block !important; }
+
+          .print-area-table, .print-area-table * { visibility: visible; }
+          .print-area-table {
+            position: fixed !important; top: 0 !important; left: 0 !important;
+            width: 100% !important; background: white !important;
+            color: black !important; border: none !important; border-radius: 0 !important;
+          }
+          .print-only-table { display: block !important; }
+
+          .hide-on-print { display: none !important; visibility: hidden !important; }
           .no-print { display: none !important; }
-          .print-only { display: block !important; }
           * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
         }
       `}</style>
@@ -351,7 +446,12 @@ export default function ScheduleList({ theme }) {
 const thStyle = (isLight) => ({
   padding: "10px 6px", fontSize: 11, fontWeight: 700,
   borderBottom: isLight ? "1px solid #e2e8f0" : "1px solid rgba(255,255,255,0.1)",
-  textAlign: "center",
+  textAlign: "center", color: isLight ? "#1e293b" : "#e2e8f0", letterSpacing: 0.5
+});
+
+const tdStyle = (isLight) => ({
+  padding: "9px 12px",
+  border: isLight ? "1px solid #e2e8f0" : "1px solid rgba(255,255,255,0.06)",
   color: isLight ? "#1e293b" : "#e2e8f0",
-  letterSpacing: 0.5
+  verticalAlign: "middle", fontSize: 12
 });
