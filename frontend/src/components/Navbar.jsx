@@ -7,21 +7,22 @@ export default function Navbar({ theme, toggleTheme }) {
   const isLight = theme === "light";
 
   const handleLogout = async () => {
-  const user = JSON.parse(localStorage.getItem("user"));
-  if (user) {
-    await fetch("http://localhost:3000/api/lock", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: user.username })
-    });
-  }
-  localStorage.removeItem("user");
-  navigate("/");
-};
+    const user = JSON.parse(localStorage.getItem("user"));
+    if (user) {
+      await fetch("http://localhost:3000/api/lock", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: user.username })
+      });
+    }
+    localStorage.removeItem("user");
+    navigate("/");
+  };
 
   const navItems = [
     { label: "📅 Scheduler", path: "/scheduler" },
     { label: "📋 Schedules List", path: "/schedules" },
+    { label: "👤 User Management", path: "/users" },
   ];
 
   return (
@@ -38,15 +39,26 @@ export default function Navbar({ theme, toggleTheme }) {
       top: 0,
       boxSizing: "border-box"
     }}>
-      {/* Logo */}
-      <div style={{ padding: "0 20px", marginBottom: 32 }}>
-        <div style={{ fontSize: 11, letterSpacing: 4, color: isLight ? "#94a3b8" : "#64748b", textTransform: "uppercase", marginBottom: 4 }}>
-          Academic
-        </div>
+
+      {/* ACLC Logo */}
+      <div style={{ padding: "0 20px", marginBottom: 24, textAlign: "center" }}>
+        <img
+          src="/aclc-logo.png"
+          alt="ACLC Logo"
+          style={{
+            width: 90,
+            height: 90,
+            objectFit: "contain",
+            borderRadius: "50%",
+            boxShadow: isLight
+              ? "0 2px 12px rgba(0,0,0,0.12)"
+              : "0 2px 12px rgba(0,0,0,0.4)"
+          }}
+        />
         <div style={{
-          fontSize: 22, fontWeight: 800,
-          background: "linear-gradient(90deg, #60a5fa, #a78bfa)",
-          WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent"
+          fontSize: 11, letterSpacing: 2, marginTop: 8,
+          color: isLight ? "#64748b" : "#94a3b8",
+          textTransform: "uppercase", fontWeight: 600
         }}>
           Class Scheduler
         </div>

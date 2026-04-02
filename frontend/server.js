@@ -238,13 +238,86 @@ app.get('/api/terms', (req, res) => {
 // ===== LOGIN =====
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body
-  const user = db.prepare('SELECT * FROM users WHERE username = ? AND password = ?').get(username, password)
+  // Try plain text first (existing accounts)
+  let user = db.prepare('SELECT * FROM users WHERE username = ? AND password = ?').get(username, password)
+  // If not found, try hashed password (new accounts)
+  if (!user) {
+    const hashedPassword = simpleHash(password)
+    user = db.prepare('SELECT * FROM users WHERE username = ? AND password = ?').get(username, hashedPassword)
+  }
   if (user) {
     res.json({ success: true, username: user.username })
   } else {
     res.json({ success: false, message: 'Invalid username or password' })
   }
 })
+
+
+// ===== ADD THESE ROUTES TO YOUR server.js =====
+// Place them BEFORE the app.listen line at the bottom
+
+// Simple hash function (for capstone - no extra packages needed)
+function simpleHash(password) {
+  let hash = 0;
+  for (let i = 0; i < password.length; i++) {
+    const char = password.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  return Math.abs(hash).toString(16).padStart(8, '0') + 
+         Buffer.from(password).toString('base64');
+}
+
+// Get all users (without passwords)
+app.get('/api/users', (req, res) => {
+  const users = db.prepare('SELECT id, username FROM users ORDER BY id').all()
+  res.json(users)
+})
+
+// Add new user
+app.post('/api/users', (req, res) => {
+  const { username, password } = req.body
+  if (!username || !password) {
+    return res.status(400).json({ error: 'Username and password are required' })
+  }
+  if (password.length < 6) {
+    return res.status(400).json({ error: 'Password must be at least 6 characters' })
+  }
+  // Check if username already exists
+  const existing = db.prepare('SELECT id FROM users WHERE username = ?').get(username)
+  if (existing) {
+    return res.status(400).json({ error: 'Username already exists' })
+  }
+  try {
+    const hashedPassword = simpleHash(password)
+    const result = db.prepare('INSERT INTO users (username, password) VALUES (?, ?)').run(username, hashedPassword)
+    res.json({ id: result.lastInsertRowid, username })
+  } catch (err) {
+    res.status(400).json({ error: err.message })
+  }
+})
+
+// Delete user
+app.delete('/api/users/:id', (req, res) => {
+  const users = db.prepare('SELECT COUNT(*) as count FROM users').get()
+  if (users.count <= 1) {
+    return res.status(400).json({ error: 'Cannot delete the last admin account' })
+  }
+  db.prepare('DELETE FROM users WHERE id = ?').run(req.params.id)
+  res.json({ success: true })
+})
+
+// Reset password
+app.put('/api/users/:id/password', (req, res) => {
+  const { password } = req.body
+  if (!password || password.length < 6) {
+    return res.status(400).json({ error: 'Password must be at least 6 characters' })
+  }
+  const hashedPassword = simpleHash(password)
+  db.prepare('UPDATE users SET password = ? WHERE id = ?').run(hashedPassword, req.params.id)
+  res.json({ success: true })
+})
+
 
 app.listen(3000, () => {
   console.log('Server running on http://localhost:3000')
