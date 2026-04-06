@@ -41,7 +41,7 @@ export default function Login({ theme }) {
   return (
     <div style={{
       minHeight: "100vh",
-      background: isLight ? "#f1f5f9" : "linear-gradient(135deg, #0f0c29, #302b63, #24243e)",
+      background: "#f1f5f9",
       display: "flex", alignItems: "center", justifyContent: "center",
       fontFamily: "'Segoe UI', sans-serif",
       position: "relative",
@@ -56,18 +56,19 @@ export default function Login({ theme }) {
         backgroundSize: "50%",
         backgroundPosition: "center",
         backgroundRepeat: "no-repeat",
-        opacity: 0.30,
+        opacity: 0.15,
         zIndex: 0
       }} />
 
       {/* Login Card Wrapper */}
       <div style={{ position: "relative", zIndex: 1 }}>
         <div style={{
-          background: isLight ? "white" : "rgba(255,255,255,0.05)",
-          border: isLight ? "1px solid #e2e8f0" : "1px solid rgba(255,255,255,0.1)",
+          background: "rgba(255, 255, 255, 0.10)",
+          border: "1px solid rgba(255,255,255,0.3)",
           borderRadius: 20, padding: 40, width: 360,
-          backdropFilter: "blur(10px)",
-          boxShadow: isLight ? "0 4px 24px rgba(0,0,0,0.08)" : "0 20px 60px rgba(0,0,0,0.4)"
+          backdropFilter: "blur(3px)",
+          WebkitBackdropFilter: "blur(3px)",
+          boxShadow: "0 4px 24px rgba(0,0,0,0.05)"
         }}>
 
           {/* Header */}
@@ -142,9 +143,9 @@ export default function Login({ theme }) {
                   placeholder="Enter username"
                   style={{
                     width: "100%", padding: "12px 14px", borderRadius: 10,
-                    border: isLight ? "1px solid #e2e8f0" : "1px solid rgba(255,255,255,0.1)",
-                    background: isLight ? "#f8fafc" : "rgba(255,255,255,0.05)",
-                    color: isLight ? "#1e293b" : "#e2e8f0", fontSize: 14, outline: "none",
+                    background: "rgba(255, 255, 255, 0.5)",
+                    color: "#1e293b",
+                    border: "1px solid #e2e8f0",
                     boxSizing: "border-box"
                   }}
                 />
@@ -162,9 +163,9 @@ export default function Login({ theme }) {
                   placeholder="Enter password"
                   style={{
                     width: "100%", padding: "12px 14px", borderRadius: 10,
-                    border: isLight ? "1px solid #e2e8f0" : "1px solid rgba(255,255,255,0.1)",
-                    background: isLight ? "#f8fafc" : "rgba(255,255,255,0.05)",
-                    color: isLight ? "#1e293b" : "#e2e8f0", fontSize: 14, outline: "none",
+                    background: "rgba(255, 255, 255, 0.5)",
+                    color: "#1e293b",
+                    border: "1px solid #e2e8f0",
                     boxSizing: "border-box"
                   }}
                 />

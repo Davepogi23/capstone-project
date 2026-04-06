@@ -22,6 +22,7 @@ export default function Navbar({ theme, toggleTheme }) {
   const navItems = [
     { label: "📅 Scheduler", path: "/scheduler" },
     { label: "📋 Schedules List", path: "/schedules" },
+    { label: "📁 Manage Records", path: "/records" },
     { label: "👤 User Management", path: "/users" },
   ];
 
@@ -46,22 +47,15 @@ export default function Navbar({ theme, toggleTheme }) {
           src="/aclc-logo.png"
           alt="ACLC Logo"
           style={{
-            width: 90,
-            height: 90,
-            objectFit: "contain",
-            borderRadius: "50%",
-            boxShadow: isLight
-              ? "0 2px 12px rgba(0,0,0,0.12)"
-              : "0 2px 12px rgba(0,0,0,0.4)"
+            width: 90, height: 90, objectFit: "contain", borderRadius: "50%",
+            boxShadow: isLight ? "0 2px 12px rgba(0,0,0,0.12)" : "0 2px 12px rgba(0,0,0,0.4)"
           }}
         />
         <div style={{
           fontSize: 11, letterSpacing: 2, marginTop: 8,
           color: isLight ? "#64748b" : "#94a3b8",
           textTransform: "uppercase", fontWeight: 600
-        }}>
-          Class Scheduler
-        </div>
+        }}>Class Scheduler</div>
       </div>
 
       {/* Nav Items */}
@@ -74,14 +68,11 @@ export default function Navbar({ theme, toggleTheme }) {
               padding: "12px 16px", borderRadius: 10, cursor: "pointer",
               marginBottom: 4, fontSize: 14, fontWeight: 700,
               background: location.pathname === item.path
-                ? "rgba(96,165,250,0.15)"
-                : "transparent",
+                ? "rgba(96,165,250,0.15)" : "transparent",
               color: location.pathname === item.path
-                ? "#60a5fa"
-                : isLight ? "#64748b" : "#94a3b8",
+                ? "#60a5fa" : isLight ? "#64748b" : "#94a3b8",
               borderLeft: location.pathname === item.path
-                ? "3px solid #60a5fa"
-                : "3px solid transparent",
+                ? "3px solid #60a5fa" : "3px solid transparent",
               transition: "all 0.15s"
             }}
           >
@@ -92,17 +83,14 @@ export default function Navbar({ theme, toggleTheme }) {
 
       {/* Theme Toggle */}
       <div style={{ padding: "0 20px", marginBottom: 16 }}>
-        <button
-          onClick={toggleTheme}
-          style={{
-            width: "100%", padding: "10px", borderRadius: 8,
-            border: isLight ? "1px solid #e2e8f0" : "1px solid rgba(255,255,255,0.1)",
-            background: isLight ? "white" : "rgba(255,255,255,0.05)",
-            color: isLight ? "#475569" : "#94a3b8",
-            fontSize: 12, fontWeight: 600, cursor: "pointer",
-            display: "flex", alignItems: "center", justifyContent: "center", gap: 8
-          }}
-        >
+        <button onClick={toggleTheme} style={{
+          width: "100%", padding: "10px", borderRadius: 8,
+          border: isLight ? "1px solid #e2e8f0" : "1px solid rgba(255,255,255,0.1)",
+          background: isLight ? "white" : "rgba(255,255,255,0.05)",
+          color: isLight ? "#475569" : "#94a3b8",
+          fontSize: 12, fontWeight: 600, cursor: "pointer",
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 8
+        }}>
           {isLight ? "🌙 Dark Mode" : "☀️ Light Mode"}
         </button>
       </div>
@@ -112,23 +100,15 @@ export default function Navbar({ theme, toggleTheme }) {
         padding: "16px 20px",
         borderTop: isLight ? "1px solid #e2e8f0" : "1px solid rgba(255,255,255,0.06)"
       }}>
-        <div style={{ fontSize: 11, color: isLight ? "#94a3b8" : "#64748b", marginBottom: 4 }}>
-          Logged in as
-        </div>
+        <div style={{ fontSize: 11, color: isLight ? "#94a3b8" : "#64748b", marginBottom: 4 }}>Logged in as</div>
         <div style={{ fontSize: 15, fontWeight: 700, color: isLight ? "#1e293b" : "#e2e8f0", marginBottom: 12 }}>
           {user?.username}
         </div>
-        <button
-          onClick={handleLogout}
-          style={{
-            width: "100%", padding: "10px", borderRadius: 8, border: "none",
-            background: "rgba(239,68,68,0.15)",
-            color: "#fca5a5", fontSize: 12, fontWeight: 700,
-            cursor: "pointer", transition: "all 0.15s"
-          }}
-        >
-          🚪 Logout
-        </button>
+        <button onClick={handleLogout} style={{
+          width: "100%", padding: "10px", borderRadius: 8, border: "none",
+          background: "rgba(239,68,68,0.15)", color: "#fca5a5",
+          fontSize: 12, fontWeight: 700, cursor: "pointer", transition: "all 0.15s"
+        }}>🚪 Logout</button>
       </div>
     </div>
   );

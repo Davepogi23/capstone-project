@@ -1,185 +1,108 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 
-const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-const DAY_SHORT = ["M", "T", "W", "TH", "F", "S", "SU"];
-const DAY_CODES = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
+const DAYS = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
+const DAY_SHORT = ["M","T","W","TH","F","S","SU"];
+const DAY_CODES = ["MON","TUE","WED","THU","FRI","SAT","SUN"];
 
 const TIME_SLOTS = [
-  "6:00 AM", "6:30 AM", "7:00 AM", "7:30 AM", "8:00 AM", "8:30 AM",
-  "9:00 AM", "9:30 AM", "10:00 AM", "10:30 AM", "11:00 AM", "11:30 AM",
-  "12:00 PM", "12:30 PM", "1:00 PM", "1:30 PM", "2:00 PM", "2:30 PM",
-  "3:00 PM", "3:30 PM", "4:00 PM", "4:30 PM", "5:00 PM", "5:30 PM",
-  "6:00 PM", "6:30 PM", "7:00 PM", "7:30 PM", "8:00 PM", "8:30 PM",
+  "6:00 AM","6:30 AM","7:00 AM","7:30 AM","8:00 AM","8:30 AM",
+  "9:00 AM","9:30 AM","10:00 AM","10:30 AM","11:00 AM","11:30 AM",
+  "12:00 PM","12:30 PM","1:00 PM","1:30 PM","2:00 PM","2:30 PM",
+  "3:00 PM","3:30 PM","4:00 PM","4:30 PM","5:00 PM","5:30 PM",
+  "6:00 PM","6:30 PM","7:00 PM","7:30 PM","8:00 PM","8:30 PM",
   "9:00 PM"
 ];
 
 const SUBJECT_COLORS = [
-  "#3B82F6", "#8B5CF6", "#EC4899", "#F97316", "#10B981", "#14B8A6",
-  "#F59E0B", "#EF4444", "#6366F1", "#84CC16"
+  "#3B82F6","#8B5CF6","#EC4899","#F97316","#10B981","#14B8A6",
+  "#F59E0B","#EF4444","#6366F1","#84CC16"
 ];
 
 const API = "http://localhost:3000/api";
+const CELL_HEIGHT = 52;
+
+const slotToMinutes = (idx) => {
+  const clamped = Math.max(0, Math.min(idx, TIME_SLOTS.length - 1));
+  const t = TIME_SLOTS[clamped];
+  if (!t) return 0;
+  const [timePart, period] = t.split(" ");
+  const [h, m] = timePart.split(":").map(Number);
+  const isPM = period === "PM";
+  const h24 = isPM && h !== 12 ? h + 12 : (!isPM && h === 12 ? 0 : h);
+  return h24 * 60 + (m || 0);
+};
+
+const slotToTimeString = (idx) => {
+  const clamped = Math.max(0, Math.min(idx, TIME_SLOTS.length - 1));
+  const mins = slotToMinutes(clamped);
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:00`;
+};
+
+const timeStringToSlot = (timeStr) => {
+  if (!timeStr) return -1;
+  const [h, m] = timeStr.split(":").map(Number);
+  const totalMin = h * 60 + m;
+  return TIME_SLOTS.findIndex((_, idx) => slotToMinutes(idx) === totalMin);
+};
+
+const formatTime = (timeStr) => {
+  if (!timeStr) return "";
+  const [h, m] = timeStr.split(":").map(Number);
+  const period = h >= 12 ? "PM" : "AM";
+  const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+  return `${h12}:${String(m).padStart(2,"0")} ${period}`;
+};
 
 export default function ClassScheduler({ theme }) {
-  const [sections, setSections] = useState([]);
-  const [selectedSection, setSelectedSection] = useState(null);
-  const [rooms, setRooms] = useState([]);
-  const [selectedRoom, setSelectedRoom] = useState(null);
-  const [searchRoom, setSearchRoom] = useState("");
-  const [newRoom, setNewRoom] = useState("");
-  const [terms, setTerms] = useState([]);
-  const [selectedTerm, setSelectedTerm] = useState(null);
   const isLight = theme === "light";
   const navigate = useNavigate();
+
+  const [sections, setSections] = useState([]);
+  const [selectedSection, setSelectedSection] = useState(null);
   const [subjects, setSubjects] = useState([]);
   const [instructors, setInstructors] = useState([]);
-  const [schedule, setSchedule] = useState({});
+  const [rooms, setRooms] = useState([]);
   const [selectedSubject, setSelectedSubject] = useState(null);
   const [selectedInstructor, setSelectedInstructor] = useState(null);
-  const [dragItem, setDragItem] = useState(null);
-  const [hoveredCell, setHoveredCell] = useState(null);
-  const [toast, setToast] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [selectedRoom, setSelectedRoom] = useState(null);
   const [selectedType, setSelectedType] = useState("LEC");
-  const [newSubject, setNewSubject] = useState("");
-  const [newInstructor, setNewInstructor] = useState("");
-  const subjectColors = useRef({});
   const [searchSubject, setSearchSubject] = useState("");
   const [searchInstructor, setSearchInstructor] = useState("");
+  const [searchRoom, setSearchRoom] = useState("");
+  const [scheduleBlocks, setScheduleBlocks] = useState([]);
+  const [dragCreate, setDragCreate] = useState(null);
+  const [toast, setToast] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [isLocked, setIsLocked] = useState(false);
   const [lockedBy, setLockedBy] = useState("");
   const [lockChecked, setLockChecked] = useState(false);
-  let colorIdx = useRef(0);
 
-  useEffect(() => {
-    fetchSubjects();
-    fetchInstructors();
-    fetchSchedules();
-    fetchSections();
-    fetchRooms();
-    acquireLock();
-    window.addEventListener('beforeunload', releaseLock);
-    return () => {
-      releaseLock();
-      window.removeEventListener('beforeunload', releaseLock);
-    };
-  }, []);
+  // Refs - avoid stale closures
+  const subjectColors = useRef({});
+  const colorIdx = useRef(0);
+  const isDragging = useRef(false);
+  const mouseDownInfo = useRef(null);
+  const dragCreateRef = useRef(null);
+  const scheduleBlocksRef = useRef([]);
+  const resizeRef = useRef(null); // { blockId, day, startSlot, currentEndSlot }
+  const selectedSubjectRef = useRef(null);
+  const selectedInstructorRef = useRef(null);
+  const selectedRoomRef = useRef(null);
+  const selectedTypeRef = useRef("LEC");
+  const selectedSectionRef = useRef(null);
+  const isLockedRef = useRef(false);
 
-  const fetchSubjects = async (sectionId = null) => {
-    const url = sectionId
-      ? `${API}/subjects/by-section/${sectionId}`
-      : `${API}/subjects`;
-    const res = await fetch(url);
-    const data = await res.json();
-    setSubjects(data);
-  };
-
-  const fetchInstructors = async () => {
-    const res = await fetch(`${API}/instructors`);
-    const data = await res.json();
-    setInstructors(data);
-  };
-
-  const fetchSchedules = async () => {
-    const res = await fetch(`${API}/schedules/draft`);
-    const data = await res.json();
-    const scheduleMap = {};
-    data.forEach(entry => {
-      const timeIdx = TIME_SLOTS.findIndex(t => {
-        const [timePart, period] = t.split(" ");
-        const [hourStr, minuteStr] = timePart.split(":");
-        const hour = parseInt(hourStr);
-        const minutes = parseInt(minuteStr || "0");
-        const isPM = period === "PM";
-        const hour24 = isPM && hour !== 12 ? hour + 12 : (!isPM && hour === 12 ? 0 : hour);
-        const entryTimeParts = entry.start_time.split(":");
-        const entryHour = parseInt(entryTimeParts[0]);
-        const entryMinutes = parseInt(entryTimeParts[1] || "0");
-        return hour24 === entryHour && minutes === entryMinutes;
-      });
-      const dayMap = {
-        'MON': 0, 'TUE': 1, 'WED': 2, 'THU': 3,
-        'FRI': 4, 'SAT': 5, 'SUN': 6,
-        'Monday': 0, 'Tuesday': 1, 'Wednesday': 2, 'Thursday': 3,
-        'Friday': 4, 'Saturday': 5, 'Sunday': 6
-      };
-      const dayIdx = dayMap[entry.day] ?? -1;
-      if (dayIdx !== -1 && timeIdx !== -1) {
-        const key = `${dayIdx}-${timeIdx}`;
-        scheduleMap[key] = {
-          id: entry.id,
-          subject: { id: entry.subject_id, title: entry.subject_title || "Subject" },
-          instructor: { id: entry.instructor_id, fullname: entry.instructor_name || "Instructor" },
-          room: { id: entry.room_id, room_code: entry.room_code },
-          type: entry.class_type,
-          section_id: entry.section_id,
-          day: dayIdx,
-          time: timeIdx,
-        };
-      }
-    });
-    setSchedule(scheduleMap);
-    setLoading(false);
-  };
-
-  const fetchSections = async () => {
-    const res = await fetch(`${API}/sections/list`);
-    const data = await res.json();
-    setSections(data);
-  };
-
-  const fetchRooms = async () => {
-    const res = await fetch(`${API}/rooms`);
-    const data = await res.json();
-    setRooms(data);
-  };
-
-  const acquireLock = async () => {
-    const user = JSON.parse(localStorage.getItem("user"));
-    const res = await fetch(`${API}/lock`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: user.username })
-    });
-    const data = await res.json();
-    if (data.success) {
-      setIsLocked(false);
-      setLockedBy("");
-    } else {
-      if (data.lockedBy === user.username) {
-        await fetch(`${API}/lock`, {
-          method: "DELETE",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ username: user.username })
-        });
-        const res2 = await fetch(`${API}/lock`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ username: user.username })
-        });
-        const data2 = await res2.json();
-        if (data2.success) {
-          setIsLocked(false);
-          setLockedBy("");
-        }
-      } else {
-        setIsLocked(true);
-        setLockedBy(data.lockedBy);
-      }
-    }
-    setLockChecked(true);
-  };
-
-  const releaseLock = async () => {
-    const user = JSON.parse(localStorage.getItem("user"));
-    if (!user) return;
-    await fetch(`${API}/lock`, {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: user.username })
-    });
-  };
+  // Keep refs in sync with state
+  useEffect(() => { scheduleBlocksRef.current = scheduleBlocks; }, [scheduleBlocks]);
+  useEffect(() => { selectedSubjectRef.current = selectedSubject; }, [selectedSubject]);
+  useEffect(() => { selectedInstructorRef.current = selectedInstructor; }, [selectedInstructor]);
+  useEffect(() => { selectedRoomRef.current = selectedRoom; }, [selectedRoom]);
+  useEffect(() => { selectedTypeRef.current = selectedType; }, [selectedType]);
+  useEffect(() => { selectedSectionRef.current = selectedSection; }, [selectedSection]);
+  useEffect(() => { isLockedRef.current = isLocked; }, [isLocked]);
 
   const getSubjectColor = (subjectId) => {
     if (!subjectColors.current[subjectId]) {
@@ -191,101 +114,328 @@ export default function ClassScheduler({ theme }) {
 
   const showToast = (msg, type = "error") => {
     setToast({ msg, type });
-    setTimeout(() => setToast(null), 3000);
+    setTimeout(() => setToast(null), 3500);
   };
 
-  const getCellKey = (dayIdx, timeIdx) => `${dayIdx}-${timeIdx}`;
+  useEffect(() => {
+    fetchSubjects();
+    fetchInstructors();
+    fetchSchedules();
+    fetchSections();
+    fetchRooms();
+    acquireLock();
+    window.addEventListener("beforeunload", releaseLock);
+    return () => { releaseLock(); window.removeEventListener("beforeunload", releaseLock); };
+  }, []);
 
-  const timeToString = (timeIdx) => {
-    const time = TIME_SLOTS[timeIdx];
-    const [timePart, period] = time.split(" ");
-    const [hourStr, minuteStr] = timePart.split(":");
-    const hour = parseInt(hourStr);
-    const minutes = minuteStr || "00";
-    const isPM = period === "PM";
-    const hour24 = isPM && hour !== 12 ? hour + 12 : (!isPM && hour === 12 ? 0 : hour);
-    return `${String(hour24).padStart(2, '0')}:${minutes}:00`;
+  useEffect(() => {
+    const onMouseUp = async () => {
+      // ===== HANDLE RESIZE END =====
+      if (resizeRef.current) {
+        const { blockId, day, startSlot, currentEndSlot, originalEndSlot } = resizeRef.current;
+        resizeRef.current = null;
+
+        if (currentEndSlot !== originalEndSlot) {
+          // Check overlap with other blocks
+          const blocks = scheduleBlocksRef.current;
+          const hasOverlap = blocks.some(b =>
+            b.id !== blockId &&
+            b.day === day &&
+            b.startSlot < currentEndSlot &&
+            b.endSlot > startSlot
+          );
+          if (hasOverlap) {
+            showToast("Cannot resize — overlaps another block!", "error");
+            // Revert to original
+            setScheduleBlocks(prev => {
+              const updated = prev.map(b =>
+                b.id === blockId ? { ...b, endSlot: originalEndSlot } : b
+              );
+              scheduleBlocksRef.current = updated;
+              return updated;
+            });
+            return;
+          }
+          // Save new end time to DB
+          const endTimeStr = slotToTimeString(Math.min(currentEndSlot, TIME_SLOTS.length - 1));
+          try {
+            await fetch(`${API}/schedules/${blockId}`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ end_time: endTimeStr })
+            });
+            showToast("Schedule resized!", "success");
+          } catch (err) {
+            showToast("Failed to save resize!", "error");
+          }
+        }
+        return;
+      }
+
+      const dc = dragCreateRef.current;
+      const md = mouseDownInfo.current;
+
+      if (!md || !dc) {
+        isDragging.current = false;
+        mouseDownInfo.current = null;
+        dragCreateRef.current = null;
+        setDragCreate(null);
+        return;
+      }
+
+      const wasDragging = isDragging.current;
+      const { day, slotIdx: startSlot } = md;
+      const { currentSlot } = dc;
+
+      isDragging.current = false;
+      mouseDownInfo.current = null;
+      dragCreateRef.current = null;
+      setDragCreate(null);
+
+      if (wasDragging) {
+        const minSlot = Math.min(startSlot, currentSlot);
+        const maxSlot = Math.max(startSlot, currentSlot);
+        await saveScheduleRef.current(day, minSlot, maxSlot + 1);
+      } else {
+        await saveScheduleRef.current(day, startSlot, startSlot + 2);
+      }
+    };
+
+    window.addEventListener("mouseup", onMouseUp);
+    return () => window.removeEventListener("mouseup", onMouseUp);
+  }, []);
+
+  const fetchSubjects = async (sectionId = null) => {
+    const url = sectionId ? `${API}/subjects/by-section/${sectionId}` : `${API}/subjects`;
+    const data = await fetch(url).then(r => r.json());
+    setSubjects(data);
   };
 
-  const handleCellClick = async (dayIdx, timeIdx) => {
-    if (!selectedSection) {
-      showToast("Please select a section first!", "warn");
-      return;
+  const fetchInstructors = async () => {
+    const data = await fetch(`${API}/instructors`).then(r => r.json());
+    setInstructors(data);
+  };
+
+  const fetchRooms = async () => {
+    const data = await fetch(`${API}/rooms`).then(r => r.json());
+    setRooms(data);
+  };
+
+  const fetchSections = async () => {
+    const data = await fetch(`${API}/sections/list`).then(r => r.json());
+    setSections(data);
+  };
+
+  const fetchSchedules = async () => {
+    const data = await fetch(`${API}/schedules/draft`).then(r => r.json());
+    const dayMap = {
+      MON:0,TUE:1,WED:2,THU:3,FRI:4,SAT:5,SUN:6,
+      Monday:0,Tuesday:1,Wednesday:2,Thursday:3,Friday:4,Saturday:5,Sunday:6
+    };
+    const blocks = data.map(entry => {
+      const startSlot = timeStringToSlot(entry.start_time);
+      const rawEnd = timeStringToSlot(entry.end_time);
+      const endSlot = rawEnd !== -1 ? rawEnd : startSlot + 2;
+      const dayIdx = dayMap[entry.day] ?? 0;
+      return {
+        id: entry.id,
+        subject: { id: entry.subject_id, title: entry.subject_title || "Subject" },
+        instructor: { id: entry.instructor_id, fullname: entry.instructor_name || "Instructor" },
+        room: { id: entry.room_id, room_code: entry.room_code },
+        type: entry.class_type,
+        section_id: entry.section_id,
+        day: dayIdx,
+        startSlot,
+        endSlot,
+      };
+    }).filter(b => b.startSlot !== -1);
+    setScheduleBlocks(blocks);
+    scheduleBlocksRef.current = blocks;
+    setLoading(false);
+  };
+
+  const acquireLock = async () => {
+    const user = JSON.parse(localStorage.getItem("user"));
+    const res = await fetch(`${API}/lock`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: user.username })
+    });
+    const data = await res.json();
+    if (data.success) {
+      setIsLocked(false); isLockedRef.current = false;
+    } else {
+      if (data.lockedBy === user.username) {
+        await fetch(`${API}/lock`, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: user.username }) });
+        const res2 = await fetch(`${API}/lock`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: user.username }) });
+        const data2 = await res2.json();
+        if (data2.success) { setIsLocked(false); isLockedRef.current = false; }
+      } else {
+        setIsLocked(true); isLockedRef.current = true; setLockedBy(data.lockedBy);
+      }
     }
-    if (!selectedSubject || !selectedInstructor) {
-      showToast("Select a subject and instructor first!", "warn");
-      return;
-    }
-    if (!selectedRoom) {
-      showToast("Please select a room first!", "warn");
-      return;
-    }
-    const key = getCellKey(dayIdx, timeIdx);
-    if (schedule[key]) {
-      showToast("Cell already occupied!", "error");
-      return;
-    }
-    const timeStr = timeToString(timeIdx);
-    const day = DAYS[dayIdx];
-    const conflictRes = await fetch(
-      `${API}/schedules/conflicts?instructor_id=${selectedInstructor.id}&subject_id=${selectedSubject.id}&day=${day}&time=${timeStr}`
+    setLockChecked(true);
+  };
+
+  const releaseLock = async () => {
+    const user = JSON.parse(localStorage.getItem("user"));
+    if (!user) return;
+    await fetch(`${API}/lock`, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: user.username }) });
+  };
+
+  // Uses REFS so always has latest values — no stale closure
+  const saveSchedule = async (day, startSlot, endSlot) => {
+    const sub = selectedSubjectRef.current;
+    const ins = selectedInstructorRef.current;
+    const room = selectedRoomRef.current;
+    const type = selectedTypeRef.current;
+    const section = selectedSectionRef.current;
+    const blocks = scheduleBlocksRef.current;
+
+    const clampedStart = Math.max(0, Math.min(startSlot, TIME_SLOTS.length - 1));
+    const clampedEnd = Math.max(clampedStart + 1, Math.min(endSlot, TIME_SLOTS.length));
+
+    // Check overlap using ref
+    const hasOverlap = blocks.some(b =>
+      b.day === day && b.startSlot < clampedEnd && b.endSlot > clampedStart
     );
-    const { instructorConflict, subjectConflict } = await conflictRes.json();
+    if (hasOverlap) {
+      showToast("That time range overlaps an existing schedule!", "error"); return;
+    }
+
+    const startTimeStr = slotToTimeString(clampedStart);
+    const endTimeStr = slotToTimeString(Math.min(clampedEnd, TIME_SLOTS.length - 1));
+    const dayName = DAYS[day];
+
+    // Conflict check
+    const conflictRes = await fetch(`${API}/schedules/conflicts?instructor_id=${ins.id}&day=${dayName}&time=${startTimeStr}`);
+    const { instructorConflict } = await conflictRes.json();
     if (instructorConflict) {
-      showToast(`Conflict! ${selectedInstructor.fullname} already has ${instructorConflict.subject_title} at ${day} ${TIME_SLOTS[timeIdx]} (${instructorConflict.section_name})`, "error");
+      showToast(`Conflict! ${ins.fullname} already has a class at ${dayName} ${formatTime(startTimeStr)}`, "error");
       return;
     }
-    if (subjectConflict) {
-      showToast(`Conflict! ${selectedSubject.title} is already scheduled at ${day} ${TIME_SLOTS[timeIdx]} (${subjectConflict.section_name})`, "error");
-      return;
-    }
+
     try {
       const res = await fetch(`${API}/schedules`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+        method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          subject_id: selectedSubject.id,
-          instructor_id: selectedInstructor.id,
-          room_id: selectedRoom?.id || null,
-          class_type: selectedType,
-          day: DAY_CODES[dayIdx],
-          start_time: timeToString(timeIdx),
-          section_id: selectedSection?.id
+          subject_id: sub.id,
+          instructor_id: ins.id,
+          room_id: room?.id || null,
+          class_type: type,
+          day: DAY_CODES[day],
+          start_time: startTimeStr,
+          end_time: endTimeStr,
+          section_id: section?.id
         })
       });
       const data = await res.json();
-      if (data.error) {
-        showToast(data.error, "error");
-        return;
-      }
-      setSchedule(prev => ({
-        ...prev,
-        [key]: {
-          id: data.id,
-          subject: selectedSubject,
-          instructor: selectedInstructor,
-          room: selectedRoom,
-          type: selectedType,
-          section_id: selectedSection?.id,
-          day: dayIdx,
-          time: timeIdx,
-        }
-      }));
-      showToast(`Scheduled ${selectedSubject.title}!`, "success");
+      if (data.error) { showToast(data.error, "error"); return; }
+
+      const newBlock = {
+        id: data.id,
+        subject: sub,
+        instructor: ins,
+        room,
+        type,
+        section_id: section?.id,
+        day,
+        startSlot: clampedStart,
+        endSlot: clampedEnd,
+      };
+
+      setScheduleBlocks(prev => {
+        const updated = [...prev, newBlock];
+        scheduleBlocksRef.current = updated;
+        return updated;
+      });
+      showToast(`Scheduled ${sub.title}!`, "success");
     } catch (err) {
       showToast("Failed to save schedule!", "error");
     }
   };
 
-  const handleRemove = async (key) => {
-    const entry = schedule[key];
-    if (!entry) return;
+  // Keep ref to latest saveSchedule — used by mouseup event listener
+  const saveScheduleRef = useRef(null);
+  saveScheduleRef.current = saveSchedule;
+
+  // ===== RESIZE HANDLERS =====
+  const handleResizeStart = (e, block) => {
+    e.preventDefault();
+    e.stopPropagation();
+    resizeRef.current = {
+      blockId: block.id,
+      day: block.day,
+      startSlot: block.startSlot,
+      currentEndSlot: block.endSlot,
+      originalEndSlot: block.endSlot,
+    };
+  };
+
+  const handleResizeMove = (day, slotIdx) => {
+    if (!resizeRef.current) return;
+    if (day !== resizeRef.current.day) return;
+    // End slot must be at least 1 slot after start
+    const minEnd = resizeRef.current.startSlot + 1;
+    const newEnd = Math.max(minEnd, slotIdx + 1);
+    if (newEnd !== resizeRef.current.currentEndSlot) {
+      resizeRef.current.currentEndSlot = newEnd;
+      // Update block in state for live preview
+      setScheduleBlocks(prev => {
+        const updated = prev.map(b =>
+          b.id === resizeRef.current.blockId
+            ? { ...b, endSlot: newEnd }
+            : b
+        );
+        scheduleBlocksRef.current = updated;
+        return updated;
+      });
+    }
+  };
+
+  // ===== MOUSE DOWN =====
+  const handleMouseDown = (day, slotIdx, e) => {
+    if (isLockedRef.current || e.button !== 0) return;
+    const sub = selectedSubjectRef.current;
+    const ins = selectedInstructorRef.current;
+    const room = selectedRoomRef.current;
+    const section = selectedSectionRef.current;
+
+    if (!section) { showToast("Please select a section first!", "warn"); return; }
+    if (!sub || !ins) { showToast("Select a subject and instructor first!", "warn"); return; }
+    if (!room) { showToast("Please select a room first!", "warn"); return; }
+
+    const existingBlock = scheduleBlocksRef.current.find(b =>
+      b.day === day && b.startSlot <= slotIdx && b.endSlot > slotIdx
+    );
+    if (existingBlock) return;
+
+    isDragging.current = false;
+    mouseDownInfo.current = { day, slotIdx };
+    const initial = { day, startSlot: slotIdx, currentSlot: slotIdx };
+    dragCreateRef.current = initial;
+    setDragCreate(initial);
+    e.preventDefault();
+  };
+
+  // ===== MOUSE ENTER =====
+  const handleMouseEnter = (day, slotIdx) => {
+    if (!mouseDownInfo.current) return;
+    if (day !== mouseDownInfo.current.day) return;
+    isDragging.current = true; // any movement = dragging
+    const updated = { day, startSlot: mouseDownInfo.current.slotIdx, currentSlot: slotIdx };
+    dragCreateRef.current = updated;
+    setDragCreate(updated);
+  };
+
+  // handleMouseUp is defined inside useEffect above using saveScheduleRef
+
+  const handleRemoveBlock = async (blockId) => {
     try {
-      await fetch(`${API}/schedules/${entry.id}`, { method: "DELETE" });
-      setSchedule(prev => {
-        const n = { ...prev };
-        delete n[key];
-        return n;
+      await fetch(`${API}/schedules/${blockId}`, { method: "DELETE" });
+      setScheduleBlocks(prev => {
+        const updated = prev.filter(b => b.id !== blockId);
+        scheduleBlocksRef.current = updated;
+        return updated;
       });
       showToast("Schedule removed!", "success");
     } catch (err) {
@@ -293,87 +443,23 @@ export default function ClassScheduler({ theme }) {
     }
   };
 
-  const handleDragStart = (type, item) => setDragItem({ type, item });
-
-  const handleAddSubject = async () => {
-    if (!newSubject.trim()) return;
-    const res = await fetch(`${API}/subjects`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: newSubject.trim() })
-    });
-    const data = await res.json();
-    setSubjects(prev => [...prev, data]);
-    setNewSubject("");
-    showToast("Subject added!", "success");
-  };
-
-  const handleDeleteSubject = async (id) => {
-    await fetch(`${API}/subjects/${id}`, { method: "DELETE" });
-    setSubjects(prev => prev.filter(s => s.id !== id));
-    showToast("Subject deleted!", "success");
-  };
-
-  const handleAddInstructor = async () => {
-    if (!newInstructor.trim()) return;
-    const res = await fetch(`${API}/instructors`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ fullname: newInstructor.trim() })
-    });
-    const data = await res.json();
-    setInstructors(prev => [...prev, data]);
-    setNewInstructor("");
-    showToast("Instructor added!", "success");
-  };
-
-  const handleDeleteInstructor = async (id) => {
-    await fetch(`${API}/instructors/${id}`, { method: "DELETE" });
-    setInstructors(prev => prev.filter(i => i.id !== id));
-    showToast("Instructor deleted!", "success");
-  };
-
-  const handleAddRoom = async () => {
-  if (!newRoom.trim()) return;
-  const res = await fetch(`${API}/rooms`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ room_code: newRoom.trim().toUpperCase() })
-  });
-  const data = await res.json();
-  setRooms(prev => [...prev, data].sort((a, b) => a.room_code.localeCompare(b.room_code)));
-  setNewRoom("");
-  showToast("Room added!", "success");
-};
-
-  const handleDeleteRoom = async (id) => {
-  await fetch(`${API}/rooms/${id}`, { method: "DELETE" });
-  setRooms(prev => prev.filter(r => r.id !== id));
-  if (selectedRoom?.id === id) setSelectedRoom(null);
-  showToast("Room deleted!", "success");
-};
-
   const handleCreateSchedule = async () => {
-    if (!selectedSection) {
-      showToast("Please select a section first!", "warn");
-      return;
-    }
-    const scheduledItems = Object.values(schedule);
-    if (scheduledItems.length === 0) {
-      showToast("Please add subjects to the grid first!", "warn");
-      return;
-    }
+    const section = selectedSectionRef.current;
+    if (!section) { showToast("Please select a section first!", "warn"); return; }
+    const blocks = scheduleBlocksRef.current;
+    if (blocks.length === 0) { showToast("Please add subjects to the grid first!", "warn"); return; }
     try {
-      const ids = scheduledItems.map(item => item.id);
+      const ids = blocks.map(b => b.id);
       await fetch(`${API}/schedules/assign-section`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ section_id: selectedSection.id, ids })
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ section_id: section.id, ids })
       });
       showToast("Schedule created successfully! 🎉", "success");
-      setSchedule({});
+      setScheduleBlocks([]);
+      scheduleBlocksRef.current = [];
       setSelectedSection(null);
-      setTimeout(() => { navigate("/schedules"); }, 1500);
+      selectedSectionRef.current = null;
+      setTimeout(() => navigate("/schedules"), 1500);
     } catch (err) {
       showToast("Failed to create schedule!", "error");
     }
@@ -381,281 +467,152 @@ export default function ClassScheduler({ theme }) {
 
   const handleClear = async () => {
     if (!confirm("Clear everything? This will delete all unsaved schedules!")) return;
-    const draftItems = Object.values(schedule);
-    await Promise.all(draftItems.map(item =>
-      fetch(`${API}/schedules/${item.id}`, { method: "DELETE" })
-    ));
-    setSchedule({});
+    const blocks = scheduleBlocksRef.current;
+    await Promise.all(blocks.map(b => fetch(`${API}/schedules/${b.id}`, { method: "DELETE" })));
+    setScheduleBlocks([]);
+    scheduleBlocksRef.current = [];
     setSelectedSection(null);
+    selectedSectionRef.current = null;
     showToast("Cleared!", "success");
   };
 
-  const handleDrop = async (dayIdx, timeIdx, e) => {
-    if (!dragItem) return;
-    if (!selectedSection) {
-      showToast("Please select a section first!", "warn");
-      setDragItem(null);
-      return;
-    }
-    const key = getCellKey(dayIdx, timeIdx);
-    const isCopy = e?.ctrlKey || e?.metaKey;
-    let sub, ins, entryType;
-    if (dragItem.type === "scheduled") {
-      const originalEntry = schedule[dragItem.item.key];
-      sub = originalEntry?.subject;
-      ins = originalEntry?.instructor;
-      entryType = originalEntry?.type;
-    } else {
-      sub = dragItem.type === "subject" ? dragItem.item : selectedSubject;
-      ins = dragItem.type === "instructor" ? dragItem.item : selectedInstructor;
-      entryType = selectedType;
-    }
-    if (!sub || !ins) {
-      showToast("Select both subject and instructor!", "warn");
-      setDragItem(null);
-      return;
-    }
-
-    if (!selectedRoom) {
-      showToast("Please select a room first!", "warn");
-      setDragItem(null);
-      return;
-    }
-
-    if (schedule[key]) {
-      showToast("Cell already occupied!", "error");
-      setDragItem(null);
-      return;
-    }
-    try {
-      const res = await fetch(`${API}/schedules`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          subject_id: sub.id,
-          instructor_id: ins.id,
-          room_id: selectedRoom?.id || null,
-          class_type: entryType,
-          day: DAY_CODES[dayIdx],
-          start_time: timeToString(timeIdx),
-          section_id: selectedSection?.id
-        })
-      });
-      const data = await res.json();
-      if (data.error) {
-        showToast(data.error, "error");
-        setDragItem(null);
-        return;
-      }
-      if (!isCopy && dragItem.type === "scheduled") {
-        const oldEntry = schedule[dragItem.item.key];
-        if (oldEntry) {
-          await fetch(`${API}/schedules/${oldEntry.id}`, { method: "DELETE" });
-          setSchedule(prev => {
-            const n = { ...prev };
-            delete n[dragItem.item.key];
-            n[key] = { id: data.id, subject: sub, instructor: ins, type: entryType, section_id: selectedSection?.id, day: dayIdx, time: timeIdx };
-            return n;
-          });
-          showToast(`Moved ${sub.title}!`, "success");
-        }
-      } else {
-        setSchedule(prev => ({
-          ...prev,
-          [key]: { id: data.id, subject: sub, instructor: ins, type: entryType, section_id: selectedSection?.id, day: dayIdx, time: timeIdx }
-        }));
-        showToast(isCopy ? `Copied ${sub.title}! 📋` : `Dropped ${sub.title}!`, "success");
-      }
-    } catch (err) {
-      showToast("Failed to save!", "error");
-    }
-    setDragItem(null);
-    setHoveredCell(null);
-  };
+  const dragPreview = dragCreate ? {
+    day: dragCreate.day,
+    start: Math.min(dragCreate.startSlot, dragCreate.currentSlot),
+    end: Math.max(dragCreate.startSlot, dragCreate.currentSlot) + 1
+  } : null;
 
   if (loading) return (
-    <div style={{
-      minHeight: "100vh", display: "flex", alignItems: "center",
-      justifyContent: "center",
-      background: "linear-gradient(135deg, #0f0c29, #302b63, #24243e)",
-      color: "#e2e8f0", fontSize: 20
-    }}>Loading...</div>
+    <div style={{ minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center", background:"linear-gradient(135deg,#0f0c29,#302b63,#24243e)", color:"#e2e8f0", fontSize:20 }}>Loading...</div>
   );
 
   return (
-    <div style={{
-      minHeight: "100vh",
-      background: isLight ? "#f1f5f9" : "linear-gradient(135deg, #0f0c29, #302b63, #24243e)",
-      fontFamily: "'Segoe UI', sans-serif",
-      color: isLight ? "#1e293b" : "#e2e8f0", padding: "24px", boxSizing: "border-box"
-    }}>
-      {/* Header */}
-      <div style={{ textAlign: "center", marginBottom: 20 }}>
-        <div style={{ fontSize: 11, letterSpacing: 6, color: "#94a3b8", textTransform: "uppercase", marginBottom: 6 }}>
-          Web Based Class Scheduling for ACLC
-        </div>
-        <h1 style={{
-          margin: "0 0 16px", fontSize: 32, fontWeight: 800,
-          background: "linear-gradient(90deg, #60a5fa, #a78bfa, #f472b6)",
-          WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent"
-        }}>Class Scheduler</h1>
+    <div style={{ minHeight:"100vh", background:isLight?"#f1f5f9":"linear-gradient(135deg,#0f0c29,#302b63,#24243e)", fontFamily:"'Segoe UI',sans-serif", color:isLight?"#1e293b":"#e2e8f0", padding:"24px", boxSizing:"border-box", userSelect:"none" }}>
 
-        {/* Section Dropdown */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12 }}>
-          <div style={{
-            display: "flex", alignItems: "center", gap: 10,
-            background: isLight ? "white" : "rgba(255,255,255,0.05)",
-            border: isLight ? "1px solid #e2e8f0" : "1px solid rgba(255,255,255,0.1)",
-            borderRadius: 12, padding: "10px 16px", width: 400
-          }}>
-            <span style={{ fontSize: 16 }}>🏫</span>
-            <select
-              value={selectedSection?.id || ""}
-              onChange={e => {
-                const sec = sections.find(s => s.id === parseInt(e.target.value));
-                setSelectedSection(sec || null);
-                setSelectedSubject(null);
-                if (sec) {
-                  fetchSubjects(sec.id); // ✅ fetch only subjects for this section
-                } else {
-                  fetchSubjects(); // ✅ show all if no section selected
-                }
-              }}
-              style={{
-                flex: 1, background: "transparent", border: "none",
-                color: isLight ? "#1e293b" : "#e2e8f0", fontSize: 13, outline: "none",
-                fontFamily: "'Segoe UI', sans-serif", cursor: "pointer"
-              }}
-            >
+      {/* Header */}
+      <div style={{ textAlign:"center", marginBottom:20 }}>
+        <div style={{ fontSize:11, letterSpacing:6, color:"#94a3b8", textTransform:"uppercase", marginBottom:6 }}>Web Based Class Scheduling for ACLC</div>
+        <h1 style={{ margin:"0 0 16px", fontSize:32, fontWeight:800, background:"linear-gradient(90deg,#60a5fa,#a78bfa,#f472b6)", WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent" }}>Class Scheduler</h1>
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"center" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:10, background:isLight?"white":"rgba(255,255,255,0.05)", border:isLight?"1px solid #e2e8f0":"1px solid rgba(255,255,255,0.1)", borderRadius:12, padding:"10px 16px", width:400 }}>
+            <span style={{ fontSize:16 }}>🏫</span>
+            <select value={selectedSection?.id||""} onChange={e => {
+              const sec = sections.find(s => s.id === parseInt(e.target.value));
+              setSelectedSection(sec||null);
+              selectedSectionRef.current = sec||null;
+              setSelectedSubject(null);
+              selectedSubjectRef.current = null;
+              if (sec) fetchSubjects(sec.id); else fetchSubjects();
+            }} style={{ flex:1, background:"transparent", border:"none", color:isLight?"#1e293b":"#e2e8f0", fontSize:13, outline:"none", fontFamily:"'Segoe UI',sans-serif", cursor:"pointer" }}>
               <option value="">Select a section...</option>
-              {sections.map(s => (
-                <option key={s.id} value={s.id}
-                  style={{ background: isLight ? "white" : "#1e293b", color: isLight ? "#1e293b" : "#e2e8f0" }}>
-                  {s.section_name}
-                </option>
-              ))}
+              {sections.map(s => <option key={s.id} value={s.id} style={{ background:isLight?"white":"#1e293b" }}>{s.section_name}</option>)}
             </select>
-            {selectedSection && (
-              <span style={{
-                fontSize: 10, fontWeight: 700, color: "#60a5fa",
-                background: "rgba(96,165,250,0.15)",
-                padding: "3px 8px", borderRadius: 20,
-                border: "1px solid rgba(96,165,250,0.3)"
-              }}>{selectedSection.section_name}</span>
-            )}
+            {selectedSection && <span style={{ fontSize:10, fontWeight:700, color:"#60a5fa", background:"rgba(96,165,250,0.15)", padding:"3px 8px", borderRadius:20, border:"1px solid rgba(96,165,250,0.3)" }}>{selectedSection.section_name}</span>}
           </div>
         </div>
       </div>
 
       {/* Toast */}
-      {toast && (
-        <div style={{
-          position: "fixed", top: 20, right: 20, zIndex: 999,
-          background: toast.type === "success" ? "#10b981" : toast.type === "warn" ? "#f59e0b" : "#ef4444",
-          color: "white", padding: "10px 18px", borderRadius: 10, fontWeight: 600,
-          boxShadow: "0 4px 20px rgba(0,0,0,0.4)", fontSize: 13
-        }}>{toast.msg}</div>
-      )}
+      {toast && <div style={{ position:"fixed", top:20, right:20, zIndex:999, background:toast.type==="success"?"#10b981":toast.type==="warn"?"#f59e0b":"#ef4444", color:"white", padding:"10px 18px", borderRadius:10, fontWeight:600, boxShadow:"0 4px 20px rgba(0,0,0,0.4)", fontSize:13 }}>{toast.msg}</div>}
 
       {/* Lock Banner */}
       {lockChecked && isLocked && (
-        <div style={{
-          position: "fixed", top: 0, left: 0, right: 0, zIndex: 998,
-          background: "rgba(239,68,68,0.95)", padding: "14px 24px",
-          display: "flex", alignItems: "center", justifyContent: "center", gap: 12,
-          boxShadow: "0 4px 20px rgba(0,0,0,0.4)"
-        }}>
-          <span style={{ fontSize: 20 }}>🔒</span>
+        <div style={{ position:"fixed", top:0, left:0, right:0, zIndex:998, background:"rgba(239,68,68,0.95)", padding:"14px 24px", display:"flex", alignItems:"center", justifyContent:"center", gap:12 }}>
+          <span style={{ fontSize:20 }}>🔒</span>
           <div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: "white" }}>Scheduler is currently locked</div>
-            <div style={{ fontSize: 12, color: "rgba(255,255,255,0.8)" }}>
-              <strong>{lockedBy}</strong> is currently editing. You can view but not make changes.
-            </div>
+            <div style={{ fontSize:14, fontWeight:700, color:"white" }}>Scheduler is currently locked</div>
+            <div style={{ fontSize:12, color:"rgba(255,255,255,0.8)" }}><strong>{lockedBy}</strong> is currently editing.</div>
           </div>
         </div>
       )}
 
-      <div style={{ display: "flex", gap: 20, alignItems: "flex-start" }}>
-        {/* SCHEDULE GRID */}
-        <div style={{ flex: 1, overflowX: "auto" }}>
-          <div style={{
-            background: isLight ? "white" : "rgba(255,255,255,0.04)", borderRadius: 16,
-            border: isLight ? "1px solid #e2e8f0" : "1px solid rgba(255,255,255,0.1)", overflow: "hidden"
-          }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 700 }}>
+      <div style={{ display:"flex", gap:20, alignItems:"flex-start" }}>
+
+        {/* GRID */}
+        <div style={{ flex:1, overflowX:"auto" }}>
+          <div style={{ background:isLight?"white":"rgba(255,255,255,0.04)", borderRadius:16, border:isLight?"1px solid #e2e8f0":"1px solid rgba(255,255,255,0.1)", overflow:"hidden" }}>
+            <table style={{ width:"100%", borderCollapse:"collapse", minWidth:700, tableLayout:"fixed" }}>
               <thead>
                 <tr>
-                  <th style={{ ...thStyle(isLight), width: 90, background: "rgba(96,165,250,0.15)" }}>Time</th>
-                  {DAYS.map((d, i) => (
-                    <th key={i} style={{ ...thStyle(isLight), background: "rgba(96,165,250,0.1)" }}>
-                      <div style={{ fontWeight: 700 }}>{DAY_SHORT[i]}</div>
-                      <div style={{ fontSize: 9, color: "#94a3b8", fontWeight: 400 }}>{d.slice(0, 3)}</div>
+                  <th style={{ ...thStyle(isLight), width:80, background:"rgba(96,165,250,0.15)" }}>Time</th>
+                  {DAYS.map((d,i) => (
+                    <th key={i} style={{ ...thStyle(isLight), background:"rgba(96,165,250,0.1)" }}>
+                      <div style={{ fontWeight:700 }}>{DAY_SHORT[i]}</div>
+                      <div style={{ fontSize:9, color:"#94a3b8", fontWeight:400 }}>{d.slice(0,3)}</div>
                     </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {TIME_SLOTS.map((time, tIdx) => (
-                  <tr key={tIdx}>
-                    <td style={{
-                      padding: "6px 8px", fontSize: 11, color: "#94a3b8",
-                      borderBottom: isLight ? "1px solid #e2e8f0" : "1px solid rgba(255,255,255,0.05)",
-                      borderRight: isLight ? "1px solid #e2e8f0" : "1px solid rgba(255,255,255,0.08)",
-                      textAlign: "center", whiteSpace: "nowrap", fontWeight: 600
-                    }}>{time}</td>
+                  <tr key={tIdx} style={{ height:CELL_HEIGHT }}>
+                    {/* Time label — only show on the hour */}
+                    <td style={{ padding:"4px 8px", fontSize:11, color:"#94a3b8", borderBottom:isLight?"1px solid #e2e8f0":"1px solid rgba(255,255,255,0.05)", borderRight:isLight?"1px solid #e2e8f0":"1px solid rgba(255,255,255,0.08)", textAlign:"right", whiteSpace:"nowrap", fontWeight:600, width:80, verticalAlign:"top" }}>
+                      {tIdx % 2 === 0 ? time : ""}
+                    </td>
                     {DAYS.map((_, dIdx) => {
-                      const key = getCellKey(dIdx, tIdx);
-                      const entry = schedule[key];
-                      const isHovered = hoveredCell === key;
-                      const color = entry ? getSubjectColor(entry.subject.id) : null;
+                      // Block starting at this slot
+                      const block = scheduleBlocks.find(b => b.day === dIdx && b.startSlot === tIdx);
+                      // Cell is inside an existing block (not the start) — skip with null
+                      const insideBlock = scheduleBlocks.find(b => b.day === dIdx && b.startSlot < tIdx && b.endSlot > tIdx);
+                      if (insideBlock) return (
+                        <td key={dIdx}
+                          onMouseEnter={() => { handleMouseEnter(dIdx, tIdx); handleResizeMove(dIdx, tIdx); }}
+                          style={{ padding:0, border:isLight?"1px solid #e2e8f0":"1px solid rgba(255,255,255,0.05)", height:CELL_HEIGHT, background:"transparent" }}
+                        />
+                      );
+
+                      const inPreview = dragPreview && dragPreview.day === dIdx && tIdx >= dragPreview.start && tIdx < dragPreview.end;
+                      const isPreviewStart = dragPreview && dragPreview.day === dIdx && tIdx === dragPreview.start;
+
+                      if (block) {
+                        const rowSpan = Math.max(1, block.endSlot - block.startSlot);
+                        const color = getSubjectColor(block.subject.id);
+                        const startTime = slotToTimeString(block.startSlot);
+                        const endTime = slotToTimeString(Math.min(block.endSlot, TIME_SLOTS.length - 1));
+                        return (
+                          <td key={dIdx} rowSpan={rowSpan}
+                            style={{ padding:3, border:isLight?"1px solid #e2e8f0":"1px solid rgba(255,255,255,0.05)", verticalAlign:"top", position:"relative", height: rowSpan * CELL_HEIGHT }}>
+                            <div style={{ background:`${color}22`, border:`1.5px solid ${color}88`, borderLeft:`4px solid ${color}`, borderRadius:6, padding:"5px 7px", height: rowSpan * CELL_HEIGHT - 6, boxSizing:"border-box", position:"relative", overflow:"hidden" }}>
+                              <div style={{ fontSize:11, fontWeight:700, color, lineHeight:1.3 }}>{block.subject.title}</div>
+                              <div style={{ fontSize:10, color:isLight?"#475569":"#cbd5e1", marginTop:2 }}>{block.instructor.fullname}</div>
+                              {block.room?.room_code && <div style={{ fontSize:10, color:isLight?"#64748b":"#94a3b8", marginTop:1 }}>{block.room.room_code}</div>}
+                              <div style={{ fontSize:9, fontWeight:700, marginTop:2, color:block.type==="LAB"?"#f472b6":"#60a5fa" }}>{block.type||"LEC"}</div>
+                              <div style={{ fontSize:9, color:"#94a3b8", marginTop:2 }}>{formatTime(startTime)} – {formatTime(endTime)}</div>
+                                <button onClick={(e) => { e.stopPropagation(); handleRemoveBlock(block.id); }}
+                                style={{ position:"absolute", top:3, right:3, background:"rgba(239,68,68,0.3)", border:"none", color:"#fca5a5", borderRadius:3, width:16, height:16, cursor:"pointer", fontSize:10, display:"flex", alignItems:"center", justifyContent:"center", padding:0 }}>✕</button>
+                              {/* RESIZE HANDLE — bottom edge */}
+                              <div
+                                onMouseDown={(e) => handleResizeStart(e, block)}
+                                style={{ position:"absolute", bottom:0, left:0, right:0, height:8, cursor:"s-resize", display:"flex", alignItems:"center", justifyContent:"center", borderRadius:"0 0 6px 6px", background:"rgba(0,0,0,0.15)" }}
+                              >
+                                <div style={{ width:24, height:3, borderRadius:2, background:"rgba(255,255,255,0.5)" }} />
+                              </div>
+                            </div>
+                          </td>
+                        );
+                      }
+
                       return (
                         <td key={dIdx}
-                          onClick={() => !entry && !isLocked && handleCellClick(dIdx, tIdx)}
-                          onDragOver={(e) => { e.preventDefault(); setHoveredCell(key); }}
-                          onDragLeave={() => setHoveredCell(null)}
-                          onDrop={(e) => !isLocked && handleDrop(dIdx, tIdx, e)}
+                          onMouseDown={(e) => handleMouseDown(dIdx, tIdx, e)}
+                          onMouseEnter={() => { handleMouseEnter(dIdx, tIdx); handleResizeMove(dIdx, tIdx); }}
                           style={{
-                            padding: 3, border: isLight ? "1px solid #e2e8f0" : "1px solid rgba(255,255,255,0.05)",
-                            height: 52, minWidth: 90,
-                            cursor: entry ? "default" : "pointer",
-                            background: isHovered && !entry ? "rgba(96,165,250,0.2)" : entry ? `${color}22` : "transparent",
-                            transition: "background 0.15s", verticalAlign: "top", position: "relative"
+                            padding:2,
+                            border:isLight?"1px solid #e2e8f0":"1px solid rgba(255,255,255,0.05)",
+                            height:CELL_HEIGHT,
+                            cursor:isLocked?"not-allowed":"pointer",
+                            background:isPreviewStart?"rgba(96,165,250,0.3)":inPreview?"rgba(96,165,250,0.15)":"transparent",
+                            transition:"background 0.1s",
+                            verticalAlign:"top",
+                            position:"relative"
                           }}>
-                          {entry ? (
-                            <div draggable onDragStart={() => handleDragStart("scheduled", { key })}
-                              style={{
-                                background: `${color}33`, border: `1.5px solid ${color}88`,
-                                borderLeft: `4px solid ${color}`, borderRadius: 6,
-                                padding: "3px 6px", height: "100%", boxSizing: "border-box",
-                                cursor: "grab", position: "relative"
-                              }}>
-                              <div style={{ fontSize: 11, fontWeight: 700, color, lineHeight: 1.2 }}>
-                                {entry.subject.title}
-                              </div>
-                              <div style={{ fontSize: 9, color: isLight ? "#475569" : "#cbd5e1", lineHeight: 1.2, marginTop: 1 }}>
-                                {entry.instructor.fullname}
-                              </div>
-                              <div style={{ fontSize: 8, fontWeight: 700, marginTop: 2, color: entry.type === "LAB" ? "#f472b6" : "#60a5fa" }}>
-                                {entry.type || "LEC"}
-                              </div>
-                              <button onClick={(e) => { e.stopPropagation(); handleRemove(key); }}
-                                style={{
-                                  position: "absolute", top: 2, right: 2,
-                                  background: "rgba(239,68,68,0.3)", border: "none",
-                                  color: "#fca5a5", borderRadius: 3, width: 14, height: 14,
-                                  cursor: "pointer", fontSize: 9, lineHeight: 1,
-                                  display: "flex", alignItems: "center", justifyContent: "center", padding: 0
-                                }}>✕</button>
+                          {isPreviewStart && dragCreate && (
+                            <div style={{ position:"absolute", inset:2, border:"2px dashed rgba(96,165,250,0.7)", borderRadius:6, display:"flex", alignItems:"flex-start", padding:"3px 5px" }}>
+                              <span style={{ fontSize:10, color:"rgba(96,165,250,0.9)", fontWeight:600 }}>
+                                {formatTime(slotToTimeString(dragPreview.start))} → {formatTime(slotToTimeString(Math.min(dragPreview.end, TIME_SLOTS.length-1)))}
+                              </span>
                             </div>
-                          ) : (
-                            isHovered && (
-                              <div style={{
-                                position: "absolute", inset: 2,
-                                border: "2px dashed rgba(96,165,250,0.6)", borderRadius: 6,
-                                display: "flex", alignItems: "center", justifyContent: "center",
-                                color: "rgba(96,165,250,0.8)", fontSize: 18
-                              }}>+</div>
-                            )
                           )}
                         </td>
                       );
@@ -665,178 +622,101 @@ export default function ClassScheduler({ theme }) {
               </tbody>
             </table>
           </div>
-          <div style={{ fontSize: 11, color: "#64748b", marginTop: 10, textAlign: "center" }}>
-            💡 Click a cell to place • Drag scheduled blocks to move • Ctrl+drag to copy
+          <div style={{ fontSize:11, color:"#64748b", marginTop:10, textAlign:"center" }}>
+            💡 Click to place 1-hour block • Drag down on empty cell for custom duration • Drag ▬ bottom edge to resize
           </div>
         </div>
 
         {/* RIGHT PANELS */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 16, width: 200, flexShrink: 0 }}>
+        <div style={{ display:"flex", flexDirection:"column", gap:16, width:200, flexShrink:0 }}>
 
-          {/* Subjects Panel */}
-          <div style={{ ...panelStyle(isLight) }}>
-            <div style={panelHeader("#3b82f6", isLight)}><span>📚</span> Subjects</div>
-            <div style={{ padding: "8px" }}>
-              <div style={{ display: "flex", gap: 4, marginBottom: 6 }}>
-                <input placeholder="Add subject..." value={newSubject}
-                  onChange={e => setNewSubject(e.target.value)}
-                  onKeyDown={e => e.key === "Enter" && handleAddSubject()}
-                  style={{ flex: 1, padding: "6px 8px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.05)", color: isLight ? "#1e293b" : "#e2e8f0", fontSize: 11, outline: "none" }} />
-                <button onClick={handleAddSubject} style={{ padding: "6px 10px", borderRadius: 6, border: "none", background: "rgba(96,165,250,0.3)", color: "#60a5fa", cursor: "pointer", fontSize: 14, fontWeight: 700 }}>+</button>
-              </div>
-              <input placeholder="🔍 Search..." value={searchSubject}
-                onChange={e => setSearchSubject(e.target.value)}
-                style={{ width: "100%", padding: "6px 8px", borderRadius: 6, marginBottom: 6, border: "1px solid rgba(255,255,255,0.08)", background: "rgba(255,255,255,0.03)", color: isLight ? "#1e293b" : "#e2e8f0", fontSize: 11, outline: "none", boxSizing: "border-box" }} />
-              <div style={{ maxHeight: 160, overflowY: "auto" }}>
+          {/* Subjects */}
+          <div style={panelStyle(isLight)}>
+            <div style={panelHeader("#3b82f6", isLight)}>📚 Subjects</div>
+            <div style={{ padding:8 }}>
+              <input placeholder="🔍 Search..." value={searchSubject} onChange={e => setSearchSubject(e.target.value)} style={inputStyle(isLight)} />
+              <div style={{ maxHeight:160, overflowY:"auto" }}>
                 {subjects.filter(s => s.title.toLowerCase().includes(searchSubject.toLowerCase())).map(s => (
-                  <div key={s.id} draggable
-                    onDragStart={() => { handleDragStart("subject", s); setSelectedSubject(s); }}
-                    onClick={() => setSelectedSubject(s)}
-                    style={{
-                      padding: "8px 12px", margin: "3px 0", borderRadius: 8, cursor: "pointer",
-                      background: selectedSubject?.id === s.id ? `${getSubjectColor(s.id)}33` : "rgba(255,255,255,0.03)",
-                      border: selectedSubject?.id === s.id ? `1.5px solid ${getSubjectColor(s.id)}88` : "1.5px solid transparent",
-                      borderLeft: `4px solid ${getSubjectColor(s.id)}`, transition: "all 0.15s",
-                      display: "flex", alignItems: "center", justifyContent: "space-between"
-                    }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: getSubjectColor(s.id) }}>{s.title}</div>
-                    <button onClick={(e) => { e.stopPropagation(); handleDeleteSubject(s.id); }}
-                      style={{ background: "rgba(239,68,68,0.2)", border: "none", color: "#fca5a5", borderRadius: 4, width: 18, height: 18, cursor: "pointer", fontSize: 10, display: "flex", alignItems: "center", justifyContent: "center", padding: 0, flexShrink: 0 }}>✕</button>
+                  <div key={s.id} onClick={() => { setSelectedSubject(s); selectedSubjectRef.current = s; }}
+                    style={{ padding:"8px 12px", margin:"3px 0", borderRadius:8, cursor:"pointer", background:selectedSubject?.id===s.id?`${getSubjectColor(s.id)}33`:"transparent", borderLeft:`4px solid ${getSubjectColor(s.id)}`, border:selectedSubject?.id===s.id?`1.5px solid ${getSubjectColor(s.id)}88`:"1.5px solid transparent", borderLeft:`4px solid ${getSubjectColor(s.id)}` }}>
+                    <div style={{ fontSize:11, fontWeight:700, color:getSubjectColor(s.id) }}>{s.title}</div>
                   </div>
                 ))}
               </div>
             </div>
           </div>
 
-          {/* Instructors Panel */}
-          <div style={{ ...panelStyle(isLight) }}>
-            <div style={panelHeader("#8b5cf6", isLight)}><span>👨‍🏫</span> Instructors</div>
-            <div style={{ padding: "8px" }}>
-              <div style={{ display: "flex", gap: 4, marginBottom: 6 }}>
-                <input placeholder="Add instructor..." value={newInstructor}
-                  onChange={e => setNewInstructor(e.target.value)}
-                  onKeyDown={e => e.key === "Enter" && handleAddInstructor()}
-                  style={{ flex: 1, padding: "6px 8px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.05)", color: isLight ? "#1e293b" : "#e2e8f0", fontSize: 11, outline: "none" }} />
-                <button onClick={handleAddInstructor} style={{ padding: "6px 10px", borderRadius: 6, border: "none", background: "rgba(139,92,246,0.3)", color: "#a78bfa", cursor: "pointer", fontSize: 14, fontWeight: 700 }}>+</button>
-              </div>
-              <input placeholder="🔍 Search..." value={searchInstructor}
-                onChange={e => setSearchInstructor(e.target.value)}
-                style={{ width: "100%", padding: "6px 8px", borderRadius: 6, marginBottom: 6, border: "1px solid rgba(255,255,255,0.08)", background: "rgba(255,255,255,0.03)", color: isLight ? "#1e293b" : "#e2e8f0", fontSize: 11, outline: "none", boxSizing: "border-box" }} />
-              <div style={{ maxHeight: 160, overflowY: "auto" }}>
+          {/* Instructors */}
+          <div style={panelStyle(isLight)}>
+            <div style={panelHeader("#8b5cf6", isLight)}>👨‍🏫 Instructors</div>
+            <div style={{ padding:8 }}>
+              <input placeholder="🔍 Search..." value={searchInstructor} onChange={e => setSearchInstructor(e.target.value)} style={inputStyle(isLight)} />
+              <div style={{ maxHeight:160, overflowY:"auto" }}>
                 {instructors.filter(i => i.fullname.toLowerCase().includes(searchInstructor.toLowerCase())).map(ins => (
-                  <div key={ins.id} draggable
-                    onDragStart={() => { handleDragStart("instructor", ins); setSelectedInstructor(ins); }}
-                    onClick={() => setSelectedInstructor(ins)}
-                    style={{
-                      padding: "8px 12px", margin: "3px 0", borderRadius: 8, cursor: "pointer",
-                      background: selectedInstructor?.id === ins.id ? "rgba(139,92,246,0.2)" : "rgba(255,255,255,0.03)",
-                      border: selectedInstructor?.id === ins.id ? "1.5px solid rgba(139,92,246,0.6)" : "1.5px solid transparent",
-                      borderLeft: "4px solid rgba(139,92,246,0.7)", transition: "all 0.15s",
-                      display: "flex", alignItems: "center", justifyContent: "space-between"
-                    }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: isLight ? "#7c3aed" : "#c4b5fd" }}>{ins.fullname}</div>
-                    <button onClick={(e) => { e.stopPropagation(); handleDeleteInstructor(ins.id); }}
-                      style={{ background: "rgba(239,68,68,0.2)", border: "none", color: "#fca5a5", borderRadius: 3, width: 16, height: 16, cursor: "pointer", fontSize: 9, display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>✕</button>
+                  <div key={ins.id} onClick={() => { setSelectedInstructor(ins); selectedInstructorRef.current = ins; }}
+                    style={{ padding:"8px 12px", margin:"3px 0", borderRadius:8, cursor:"pointer", background:selectedInstructor?.id===ins.id?"rgba(139,92,246,0.2)":"transparent", border:selectedInstructor?.id===ins.id?"1.5px solid rgba(139,92,246,0.6)":"1.5px solid transparent", borderLeft:"4px solid rgba(139,92,246,0.7)" }}>
+                    <div style={{ fontSize:11, fontWeight:700, color:isLight?"#7c3aed":"#c4b5fd" }}>{ins.fullname}</div>
                   </div>
                 ))}
               </div>
             </div>
           </div>
 
-          {/* Rooms Panel */}
-          <div style={{ ...panelStyle(isLight) }}>
-            <div style={panelHeader("#10b981", isLight)}><span>🚪</span> Rooms</div>
-            <div style={{ padding: "8px" }}>
-              {/* Add Room Input */}
-              <div style={{ display: "flex", gap: 4, marginBottom: 6 }}>
-                <input placeholder="Add room..." value={newRoom}
-                  onChange={e => setNewRoom(e.target.value)}
-                  onKeyDown={e => e.key === "Enter" && handleAddRoom()}
-                  style={{ flex: 1, padding: "6px 8px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.05)", color: isLight ? "#1e293b" : "#e2e8f0", fontSize: 11, outline: "none" }} />
-                <button onClick={handleAddRoom} style={{ padding: "6px 10px", borderRadius: 6, border: "none", background: "rgba(16,185,129,0.3)", color: "#6ee7b7", cursor: "pointer", fontSize: 14, fontWeight: 700 }}>+</button>
-              </div>
-              <input placeholder="🔍 Search room..." value={searchRoom}
-                onChange={e => setSearchRoom(e.target.value)}
-                style={{ width: "100%", padding: "6px 8px", borderRadius: 6, marginBottom: 6, border: "1px solid rgba(255,255,255,0.08)", background: "rgba(255,255,255,0.03)", color: isLight ? "#1e293b" : "#e2e8f0", fontSize: 11, outline: "none", boxSizing: "border-box" }} />
-              <div style={{ maxHeight: 160, overflowY: "auto" }}>
+          {/* Rooms */}
+          <div style={panelStyle(isLight)}>
+            <div style={panelHeader("#10b981", isLight)}>🚪 Rooms</div>
+            <div style={{ padding:8 }}>
+              <input placeholder="🔍 Search room..." value={searchRoom} onChange={e => setSearchRoom(e.target.value)} style={inputStyle(isLight)} />
+              <div style={{ maxHeight:160, overflowY:"auto" }}>
                 {rooms.filter(r => r.room_code.toLowerCase().includes(searchRoom.toLowerCase())).map(r => (
                   <div key={r.id} onClick={() => {
-                    const newRoom = selectedRoom?.id === r.id ? null : r;
-                    setSelectedRoom(newRoom);
-                    if (newRoom) {
-                      const isSlab = newRoom.room_code.toLowerCase().includes('slab');
-                      setSelectedType(isSlab ? 'LAB' : 'LEC');
+                    const room = selectedRoom?.id===r.id ? null : r;
+                    setSelectedRoom(room);
+                    selectedRoomRef.current = room;
+                    if (room) {
+                      const t = room.room_code.toLowerCase().includes("slab") ? "LAB" : "LEC";
+                      setSelectedType(t);
+                      selectedTypeRef.current = t;
                     }
                   }}
-                    style={{
-                      padding: "8px 12px", margin: "3px 0", borderRadius: 8, cursor: "pointer",
-                      background: selectedRoom?.id === r.id ? "rgba(16,185,129,0.2)" : "rgba(255,255,255,0.03)",
-                      border: selectedRoom?.id === r.id ? "1.5px solid rgba(16,185,129,0.6)" : "1.5px solid transparent",
-                      borderLeft: "4px solid rgba(16,185,129,0.7)", transition: "all 0.15s",
-                      display: "flex", alignItems: "center", justifyContent: "space-between",
-                    }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: isLight ? "#059669" : "#6ee7b7" }}>{r.room_code}</div>
-                    <button onClick={(e) => { e.stopPropagation(); handleDeleteRoom(r.id); }}
-                      style={{ background: "rgba(239,68,68,0.2)", border: "none", color: "#fca5a5", borderRadius: 4, width: 18, height: 18, cursor: "pointer", fontSize: 10, display: "flex", alignItems: "center", justifyContent: "center", padding: 0, flexShrink: 0 }}>✕</button>
-                    </div>
+                    style={{ padding:"8px 12px", margin:"3px 0", borderRadius:8, cursor:"pointer", background:selectedRoom?.id===r.id?"rgba(16,185,129,0.2)":"transparent", border:selectedRoom?.id===r.id?"1.5px solid rgba(16,185,129,0.6)":"1.5px solid transparent", borderLeft:"4px solid rgba(16,185,129,0.7)" }}>
+                    <div style={{ fontSize:11, fontWeight:700, color:isLight?"#059669":"#6ee7b7" }}>{r.room_code}</div>
+                  </div>
                 ))}
               </div>
             </div>
           </div>
 
           {/* Selection Status */}
-          <div style={{ ...panelStyle(isLight), padding: 12 }}>
-            <div style={{ fontSize: 10, color: "#64748b", marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }}>Selected</div>
-            <div style={{ marginBottom: 6 }}>
-              <div style={{ fontSize: 9, color: "#60a5fa" }}>SUBJECT</div>
-              <div style={{ fontSize: 11, color: selectedSubject ? (isLight ? "#1e293b" : "#e2e8f0") : "#475569" }}>
-                {selectedSubject ? selectedSubject.title : "None selected"}
+          <div style={{ ...panelStyle(isLight), padding:12 }}>
+            <div style={{ fontSize:10, color:"#64748b", marginBottom:8, textTransform:"uppercase", letterSpacing:1 }}>Selected</div>
+            {[
+              { label:"SUBJECT", value:selectedSubject?.title, color:"#60a5fa" },
+              { label:"INSTRUCTOR", value:selectedInstructor?.fullname, color:"#a78bfa" },
+              { label:"ROOM", value:selectedRoom?.room_code, color:"#6ee7b7" },
+            ].map(({ label, value, color }) => (
+              <div key={label} style={{ marginBottom:6 }}>
+                <div style={{ fontSize:9, color }}>{label}</div>
+                <div style={{ fontSize:11, color:value?(isLight?"#1e293b":"#e2e8f0"):"#475569" }}>{value||"None selected"}</div>
               </div>
-            </div>
-            <div style={{ marginBottom: 6 }}>
-              <div style={{ fontSize: 9, color: "#a78bfa" }}>INSTRUCTOR</div>
-              <div style={{ fontSize: 11, color: selectedInstructor ? (isLight ? "#1e293b" : "#e2e8f0") : "#475569" }}>
-                {selectedInstructor ? selectedInstructor.fullname : "None selected"}
-              </div>
-            </div>
-            <div style={{ marginBottom: 6 }}>
-              <div style={{ fontSize: 9, color: "#6ee7b7" }}>ROOM</div>
-              <div style={{ fontSize: 11, color: selectedRoom ? (isLight ? "#1e293b" : "#e2e8f0") : "#475569" }}>
-                {selectedRoom ? selectedRoom.room_code : "None selected"}
-              </div>
-            </div>
-            {(selectedSubject && selectedInstructor) || Object.keys(schedule).length > 0 ? (
+            ))}
+            {(selectedSubject && selectedInstructor) || scheduleBlocks.length > 0 ? (
               <>
-                <div style={{ marginTop: 10 }}>
-                  <div style={{ fontSize: 9, color: "#64748b", marginBottom: 6, textTransform: "uppercase", letterSpacing: 1 }}>Type</div>
-                  <div style={{ display: "flex", gap: 6 }}>
-                    {["LEC", "LAB"].map(t => (
-                      <button key={t} onClick={() => setSelectedType(t)} style={{
-                        flex: 1, padding: "6px 0", borderRadius: 6, cursor: "pointer", fontSize: 11, fontWeight: 700,
-                        background: selectedType === t ? t === "LEC" ? "rgba(96,165,250,0.3)" : "rgba(236,72,153,0.3)" : "rgba(255,255,255,0.05)",
-                        color: selectedType === t ? t === "LEC" ? "#60a5fa" : "#f472b6" : "#64748b",
-                        border: selectedType === t ? t === "LEC" ? "1px solid rgba(96,165,250,0.5)" : "1px solid rgba(236,72,153,0.5)" : "1px solid transparent",
-                        transition: "all 0.15s"
-                      }}>{t}</button>
+                <div style={{ marginTop:10 }}>
+                  <div style={{ fontSize:9, color:"#64748b", marginBottom:6, textTransform:"uppercase", letterSpacing:1 }}>Type</div>
+                  <div style={{ display:"flex", gap:6 }}>
+                    {["LEC","LAB"].map(t => (
+                      <button key={t} onClick={() => { setSelectedType(t); selectedTypeRef.current = t; }}
+                        style={{ flex:1, padding:"6px 0", borderRadius:6, cursor:"pointer", fontSize:11, fontWeight:700, background:selectedType===t?(t==="LEC"?"rgba(96,165,250,0.3)":"rgba(236,72,153,0.3)"):"rgba(255,255,255,0.05)", color:selectedType===t?(t==="LEC"?"#60a5fa":"#f472b6"):"#64748b", border:selectedType===t?(t==="LEC"?"1px solid rgba(96,165,250,0.5)":"1px solid rgba(236,72,153,0.5)"):"1px solid transparent" }}>{t}</button>
                     ))}
                   </div>
                 </div>
-                <div style={{ marginTop: 10, padding: "6px 10px", borderRadius: 6, background: "rgba(16,185,129,0.15)", border: "1px solid rgba(16,185,129,0.3)", fontSize: 10, color: "#6ee7b7", textAlign: "center" }}>
-                  ✓ Ready to schedule
-                </div>
-                <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
-                  <button onClick={handleClear} disabled={isLocked} style={{
-                    flex: 1, padding: "10px", borderRadius: 8, border: "1px solid rgba(239,68,68,0.3)",
-                    background: isLocked ? "rgba(255,255,255,0.05)" : "rgba(239,68,68,0.15)",
-                    color: isLocked ? "#475569" : "#fca5a5", fontSize: 12, fontWeight: 700,
-                    cursor: isLocked ? "not-allowed" : "pointer", transition: "all 0.2s"
-                  }}>🗑️ Clear</button>
-                  <button onClick={handleCreateSchedule} disabled={isLocked} style={{
-                    flex: 2, padding: "10px", borderRadius: 8, border: "none",
-                    cursor: isLocked ? "not-allowed" : "pointer", fontSize: 12, fontWeight: 700,
-                    background: isLocked ? "rgba(255,255,255,0.05)" : "linear-gradient(90deg, #3b82f6, #8b5cf6)",
-                    color: isLocked ? "#475569" : "white", transition: "all 0.2s"
-                  }}>+ Create Schedule</button>
+                {selectedSubject && selectedInstructor && selectedRoom && (
+                  <div style={{ marginTop:10, padding:"6px 10px", borderRadius:6, background:"rgba(16,185,129,0.15)", border:"1px solid rgba(16,185,129,0.3)", fontSize:10, color:"#6ee7b7", textAlign:"center" }}>✓ Click cell or drag to place</div>
+                )}
+                <div style={{ display:"flex", gap:6, marginTop:10 }}>
+                  <button onClick={handleClear} disabled={isLocked} style={{ flex:1, padding:"10px", borderRadius:8, border:"1px solid rgba(239,68,68,0.3)", background:isLocked?"rgba(255,255,255,0.05)":"rgba(239,68,68,0.15)", color:isLocked?"#475569":"#fca5a5", fontSize:12, fontWeight:700, cursor:isLocked?"not-allowed":"pointer" }}>🗑️ Clear</button>
+                  <button onClick={handleCreateSchedule} disabled={isLocked} style={{ flex:2, padding:"10px", borderRadius:8, border:"none", cursor:isLocked?"not-allowed":"pointer", fontSize:12, fontWeight:700, background:isLocked?"rgba(255,255,255,0.05)":"linear-gradient(90deg,#3b82f6,#8b5cf6)", color:isLocked?"#475569":"white" }}>+ Create Schedule</button>
                 </div>
               </>
             ) : null}
@@ -848,23 +728,27 @@ export default function ClassScheduler({ theme }) {
 }
 
 const thStyle = (isLight) => ({
-  padding: "10px 6px", fontSize: 11, fontWeight: 700,
-  borderBottom: isLight ? "1px solid #cbd5e1" : "1px solid rgba(255,255,255,0.1)",
-  textAlign: "center",
-  color: isLight ? "#1e293b" : "#e2e8f0",
-  letterSpacing: 0.5
+  padding:"10px 6px", fontSize:11, fontWeight:700,
+  borderBottom:isLight?"1px solid #cbd5e1":"1px solid rgba(255,255,255,0.1)",
+  textAlign:"center", color:isLight?"#1e293b":"#e2e8f0", letterSpacing:0.5
 });
 
 const panelStyle = (isLight) => ({
-  background: isLight ? "white" : "rgba(255,255,255,0.04)", borderRadius: 12,
-  border: isLight ? "1px solid #e2e8f0" : "1px solid rgba(255,255,255,0.08)", overflow: "hidden",
-  boxShadow: isLight ? "0 1px 3px rgba(0,0,0,0.08)" : "none"
+  background:isLight?"white":"rgba(255,255,255,0.04)", borderRadius:12,
+  border:isLight?"1px solid #e2e8f0":"1px solid rgba(255,255,255,0.08)", overflow:"hidden",
+  boxShadow:isLight?"0 1px 3px rgba(0,0,0,0.08)":"none"
 });
 
 const panelHeader = (color, isLight) => ({
-  padding: "10px 12px", background: `${color}22`,
-  borderBottom: isLight ? "1px solid #e2e8f0" : "1px solid rgba(255,255,255,0.06)",
-  fontSize: 12, fontWeight: 700,
-  color: isLight ? "#1e293b" : "#e2e8f0",
-  letterSpacing: 0.5, display: "flex", alignItems: "center", gap: 6
+  padding:"10px 12px", background:`${color}22`,
+  borderBottom:isLight?"1px solid #e2e8f0":"1px solid rgba(255,255,255,0.06)",
+  fontSize:12, fontWeight:700, color:isLight?"#1e293b":"#e2e8f0",
+  letterSpacing:0.5, display:"flex", alignItems:"center", gap:6
+});
+
+const inputStyle = (isLight) => ({
+  width:"100%", padding:"6px 8px", borderRadius:6, marginBottom:6,
+  border:isLight?"1px solid #e2e8f0":"1px solid rgba(255,255,255,0.08)",
+  background:isLight?"#f8fafc":"rgba(255,255,255,0.03)",
+  color:isLight?"#1e293b":"#e2e8f0", fontSize:11, outline:"none", boxSizing:"border-box"
 });

@@ -4,6 +4,7 @@ import Login from "./pages/Login";
 import ClassScheduler from "./ClassScheduler";
 import ScheduleList from "./pages/ScheduleList";
 import UserManagement from "./pages/UserManagement";
+import ManageRecords from "./pages/ManageRecords";
 import Navbar from "./components/Navbar";
 
 function ProtectedRoute({ children, theme, toggleTheme }) {
@@ -40,6 +41,11 @@ function App() {
         <Route path="/schedules" element={
           <ProtectedRoute theme={theme} toggleTheme={toggleTheme}>
             <ScheduleList key={Date.now()} theme={theme} />
+          </ProtectedRoute>
+        } />
+        <Route path="/records" element={
+          <ProtectedRoute theme={theme} toggleTheme={toggleTheme}>
+            <ManageRecords theme={theme} />
           </ProtectedRoute>
         } />
         <Route path="/users" element={
