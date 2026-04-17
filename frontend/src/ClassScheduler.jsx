@@ -529,14 +529,14 @@ export default function ClassScheduler({ theme }) {
       <div style={{ display:"flex", gap:20, alignItems:"flex-start" }}>
 
         {/* GRID */}
-        <div style={{ flex:1, overflowX:"auto" }}>
-          <div style={{ background:isLight?"white":"rgba(255,255,255,0.04)", borderRadius:16, border:isLight?"1px solid #e2e8f0":"1px solid rgba(255,255,255,0.1)", overflow:"hidden" }}>
-            <table style={{ width:"100%", borderCollapse:"collapse", minWidth:700, tableLayout:"fixed" }}>
+        <div style={{ flex:1, overflowX:"auto", minWidth:800 }}>
+          <div style={{ background:isLight?"white":"rgba(255,255,255,0.04)", borderRadius:16, border:isLight?"1px solid #e2e8f0":"1px solid rgba(255,255,255,0.1)", overflow:"hidden", width:"100%", minWidth:800 }}>
+            <table style={{ width:"100%", borderCollapse:"collapse", minWidth:800, tableLayout:"fixed" }}>
               <thead>
                 <tr>
                   <th style={{ ...thStyle(isLight), width:80, background:"rgba(96,165,250,0.15)" }}>Time</th>
                   {DAYS.map((d,i) => (
-                    <th key={i} style={{ ...thStyle(isLight), background:"rgba(96,165,250,0.1)" }}>
+                    <th key={i} style={{ ...thStyle(isLight), width:"calc(100% / 7)", background:"rgba(96,165,250,0.1)" }}>
                       <div style={{ fontWeight:700 }}>{DAY_SHORT[i]}</div>
                       <div style={{ fontSize:9, color:"#94a3b8", fontWeight:400 }}>{d.slice(0,3)}</div>
                     </th>
@@ -547,7 +547,7 @@ export default function ClassScheduler({ theme }) {
                 {TIME_SLOTS.map((time, tIdx) => (
                   <tr key={tIdx} style={{ height:CELL_HEIGHT }}>
                     {/* Time label — only show on the hour */}
-                    <td style={{ padding:"4px 8px", fontSize:11, color:"#94a3b8", borderBottom:isLight?"1px solid #e2e8f0":"1px solid rgba(255,255,255,0.05)", borderRight:isLight?"1px solid #e2e8f0":"1px solid rgba(255,255,255,0.08)", textAlign:"right", whiteSpace:"nowrap", fontWeight:600, width:80, verticalAlign:"top" }}>
+                    <td style={{ padding:"4px 8px", fontSize:11, color:"#94a3b8", borderBottom:isLight?"1px solid #e2e8f0":"1px solid rgba(255,255,255,0.05)", borderRight:isLight?"1px solid #e2e8f0":"1px solid rgba(255,255,255,0.08)", textAlign:"right", whiteSpace:"nowrap", fontWeight:600, width:80, verticalAlign:"top", boxSizing:"border-box" }}>
                       {tIdx % 2 === 0 ? time : ""}
                     </td>
                     {DAYS.map((_, dIdx) => {
@@ -558,7 +558,7 @@ export default function ClassScheduler({ theme }) {
                       if (insideBlock) return (
                         <td key={dIdx}
                           onMouseEnter={() => { handleMouseEnter(dIdx, tIdx); handleResizeMove(dIdx, tIdx); }}
-                          style={{ padding:0, border:isLight?"1px solid #e2e8f0":"1px solid rgba(255,255,255,0.05)", height:CELL_HEIGHT, background:"transparent" }}
+                          style={{ padding:0, border:isLight?"1px solid #e2e8f0":"1px solid rgba(255,255,255,0.05)", borderRight:dIdx === 6 ? "none" : (isLight?"1px solid #e2e8f0":"1px solid rgba(255,255,255,0.05)"), height:CELL_HEIGHT, background:"transparent" }}
                         />
                       );
 
@@ -572,7 +572,7 @@ export default function ClassScheduler({ theme }) {
                         const endTime = slotToTimeString(Math.min(block.endSlot, TIME_SLOTS.length - 1));
                         return (
                           <td key={dIdx} rowSpan={rowSpan}
-                            style={{ padding:3, border:isLight?"1px solid #e2e8f0":"1px solid rgba(255,255,255,0.05)", verticalAlign:"top", position:"relative", height: rowSpan * CELL_HEIGHT }}>
+                            style={{ padding:3, border:isLight?"1px solid #e2e8f0":"1px solid rgba(255,255,255,0.05)", borderRight:dIdx === 6 ? "none" : (isLight?"1px solid #e2e8f0":"1px solid rgba(255,255,255,0.05)"), verticalAlign:"top", position:"relative", height: rowSpan * CELL_HEIGHT }}>
                             <div style={{ background:`${color}22`, border:`1.5px solid ${color}88`, borderLeft:`4px solid ${color}`, borderRadius:6, padding:"5px 7px", height: rowSpan * CELL_HEIGHT - 6, boxSizing:"border-box", position:"relative", overflow:"hidden" }}>
                               <div style={{ fontSize:11, fontWeight:700, color, lineHeight:1.3 }}>{block.subject.title}</div>
                               <div style={{ fontSize:10, color:isLight?"#475569":"#cbd5e1", marginTop:2 }}>{block.instructor.fullname}</div>
@@ -600,6 +600,7 @@ export default function ClassScheduler({ theme }) {
                           style={{
                             padding:2,
                             border:isLight?"1px solid #e2e8f0":"1px solid rgba(255,255,255,0.05)",
+                            borderRight:dIdx === 6 ? "none" : (isLight?"1px solid #e2e8f0":"1px solid rgba(255,255,255,0.05)"),
                             height:CELL_HEIGHT,
                             cursor:isLocked?"not-allowed":"pointer",
                             background:isPreviewStart?"rgba(96,165,250,0.3)":inPreview?"rgba(96,165,250,0.15)":"transparent",
