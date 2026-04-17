@@ -2,12 +2,12 @@ import { useState, useEffect, useRef } from "react";
 
 const API = "http://localhost:3000/api";
 
-const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-const DAY_SHORT = ["M", "T", "W", "TH", "F", "S", "SU"];
-const DAY_CODES = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
+const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const DAY_SHORT = ["M", "T", "W", "TH", "F", "S"];
+const DAY_CODES = ["MON", "TUE", "WED", "THU", "FRI", "SAT"];
 
 const TIME_SLOTS = [
-  "6:00 AM", "6:30 AM", "7:00 AM", "7:30 AM", "8:00 AM", "8:30 AM",
+  "7:00 AM", "7:30 AM", "8:00 AM", "8:30 AM",
   "9:00 AM", "9:30 AM", "10:00 AM", "10:30 AM", "11:00 AM", "11:30 AM",
   "12:00 PM", "12:30 PM", "1:00 PM", "1:30 PM", "2:00 PM", "2:30 PM",
   "3:00 PM", "3:30 PM", "4:00 PM", "4:30 PM", "5:00 PM", "5:30 PM",
@@ -138,7 +138,8 @@ export default function ScheduleList({ theme }) {
     return `${String(hour24).padStart(2, '0')}:${minuteStr || "00"}`;
   };
 
-  const getCell = (dayIdx, timeIdx) => {
+  // Find the schedule block that starts at this cell
+  const getBlockAt = (dayIdx, timeIdx) => {
     const dayCode = DAY_CODES[dayIdx];
     const timeStr = timeIdxToStr(timeIdx);
     return sectionSchedules.find(s =>
@@ -146,7 +147,20 @@ export default function ScheduleList({ theme }) {
     );
   };
 
-  const hasContent = (timeIdx) => DAYS.some((_, dIdx) => getCell(dIdx, timeIdx));
+  // Check if this cell is inside a block (not the start)
+  const isInsideBlock = (dayIdx, timeIdx) => {
+    const dayCode = DAY_CODES[dayIdx];
+    const slotTime = timeIdxToStr(timeIdx);
+    return sectionSchedules.some(s => {
+      if (s.day !== dayCode) return false;
+      // Convert start_time and end_time to slot indices
+      const startIdx = TIME_SLOTS.findIndex((_, idx) => timeIdxToStr(idx) === s.start_time.slice(0,5));
+      const endIdx = TIME_SLOTS.findIndex((_, idx) => timeIdxToStr(idx) === s.end_time.slice(0,5));
+      return startIdx !== -1 && endIdx !== -1 && timeIdx > startIdx && timeIdx <= endIdx;
+    });
+  };
+
+  const hasContent = (timeIdx) => DAYS.some((_, dIdx) => getBlockAt(dIdx, timeIdx) || isInsideBlock(dIdx, timeIdx));
 
   if (loading) return (
     <div style={{
@@ -331,16 +345,22 @@ export default function ScheduleList({ theme }) {
                             textAlign: "center", whiteSpace: "nowrap", fontWeight: 600
                           }}>{time}</td>
                           {DAYS.map((_, dIdx) => {
-                            const entry = getCell(dIdx, tIdx);
-                            const color = entry ? getColor(entry.subject_id) : null;
-                            return (
-                              <td key={dIdx} style={{
-                                padding: 3,
-                                border: isLight ? "1px solid #e2e8f0" : "1px solid rgba(255,255,255,0.05)",
-                                height: 60, minWidth: 100, verticalAlign: "top",
-                                background: entry ? `${color}22` : "transparent"
-                              }}>
-                                {entry && (
+                            // If this cell is inside a block (not the start), skip rendering (so rowSpan works)
+                            if (isInsideBlock(dIdx, tIdx)) return null;
+                            const entry = getBlockAt(dIdx, tIdx);
+                            if (entry) {
+                              // Calculate rowSpan (number of slots this block covers)
+                              const startIdx = TIME_SLOTS.findIndex((_, idx) => timeIdxToStr(idx) === entry.start_time.slice(0,5));
+                              const endIdx = TIME_SLOTS.findIndex((_, idx) => timeIdxToStr(idx) === entry.end_time.slice(0,5));
+                              const rowSpan = endIdx > startIdx ? endIdx - startIdx + 1 : 1;
+                              const color = getColor(entry.subject_id);
+                              return (
+                                <td key={dIdx} rowSpan={rowSpan} style={{
+                                  padding: 3,
+                                  border: isLight ? "1px solid #e2e8f0" : "1px solid rgba(255,255,255,0.05)",
+                                  height: 60 * rowSpan, minWidth: 100, verticalAlign: "top",
+                                  background: `${color}22`
+                                }}>
                                   <div style={{
                                     background: `${color}33`,
                                     border: `1.5px solid ${color}88`,
@@ -371,8 +391,17 @@ export default function ScheduleList({ theme }) {
                                         display: "flex", alignItems: "center", justifyContent: "center", padding: 0
                                       }}>✕</button>
                                   </div>
-                                )}
-                              </td>
+                                </td>
+                              );
+                            }
+                            // Empty cell
+                            return (
+                              <td key={dIdx} style={{
+                                padding: 3,
+                                border: isLight ? "1px solid #e2e8f0" : "1px solid rgba(255,255,255,0.05)",
+                                height: 60, minWidth: 100, verticalAlign: "top",
+                                background: "transparent"
+                              }} />
                             );
                           })}
                         </tr>

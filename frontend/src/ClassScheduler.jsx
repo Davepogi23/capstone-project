@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 
-const DAYS = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
-const DAY_SHORT = ["M","T","W","TH","F","S","SU"];
-const DAY_CODES = ["MON","TUE","WED","THU","FRI","SAT","SUN"];
+const DAYS = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+const DAY_SHORT = ["M","T","W","TH","F","S"];
+const DAY_CODES = ["MON","TUE","WED","THU","FRI","SAT"];
 
 const TIME_SLOTS = [
-  "6:00 AM","6:30 AM","7:00 AM","7:30 AM","8:00 AM","8:30 AM",
+  "7:00 AM","7:30 AM","8:00 AM","8:30 AM",
   "9:00 AM","9:30 AM","10:00 AM","10:30 AM","11:00 AM","11:30 AM",
   "12:00 PM","12:30 PM","1:00 PM","1:30 PM","2:00 PM","2:30 PM",
   "3:00 PM","3:30 PM","4:00 PM","4:30 PM","5:00 PM","5:30 PM",
@@ -201,8 +201,34 @@ export default function ClassScheduler({ theme }) {
       }
     };
 
+    // Global mousemove: track resize by calculating slot from Y position on the table
+    const onMouseMove = (e) => {
+      if (!resizeRef.current) return;
+      // Find all time-slot rows by data attribute
+      const rows = document.querySelectorAll("[data-slot-row]");
+      if (!rows.length) return;
+      let closestSlot = -1;
+      let closestDist = Infinity;
+      rows.forEach(row => {
+        const rect = row.getBoundingClientRect();
+        const rowCenter = rect.top + rect.height / 2;
+        const dist = Math.abs(e.clientY - rowCenter);
+        if (dist < closestDist) {
+          closestDist = dist;
+          closestSlot = parseInt(row.dataset.slotRow);
+        }
+      });
+      if (closestSlot !== -1) {
+        handleResizeMoveRef.current(resizeRef.current.day, closestSlot);
+      }
+    };
+
     window.addEventListener("mouseup", onMouseUp);
-    return () => window.removeEventListener("mouseup", onMouseUp);
+    window.addEventListener("mousemove", onMouseMove);
+    return () => {
+      window.removeEventListener("mouseup", onMouseUp);
+      window.removeEventListener("mousemove", onMouseMove);
+    };
   }, []);
 
   const fetchSubjects = async (sectionId = null) => {
@@ -358,6 +384,9 @@ export default function ClassScheduler({ theme }) {
   const saveScheduleRef = useRef(null);
   saveScheduleRef.current = saveSchedule;
 
+  // Keep ref to latest handleResizeMove — used by global mousemove listener
+  const handleResizeMoveRef = useRef(null);
+
   // ===== RESIZE HANDLERS =====
   const handleResizeStart = (e, block) => {
     e.preventDefault();
@@ -374,15 +403,16 @@ export default function ClassScheduler({ theme }) {
   const handleResizeMove = (day, slotIdx) => {
     if (!resizeRef.current) return;
     if (day !== resizeRef.current.day) return;
-    // End slot must be at least 1 slot after start
+    // End slot must be at least 1 slot after start (min 30-min block)
     const minEnd = resizeRef.current.startSlot + 1;
+    // Allow dragging up (shrinking) or down (expanding), but never below start+1
     const newEnd = Math.max(minEnd, slotIdx + 1);
     if (newEnd !== resizeRef.current.currentEndSlot) {
       resizeRef.current.currentEndSlot = newEnd;
       // Update block in state for live preview
       setScheduleBlocks(prev => {
         const updated = prev.map(b =>
-          b.id === resizeRef.current.blockId
+          b.id === resizeRef.current?.blockId
             ? { ...b, endSlot: newEnd }
             : b
         );
@@ -391,6 +421,7 @@ export default function ClassScheduler({ theme }) {
       });
     }
   };
+  handleResizeMoveRef.current = handleResizeMove;
 
   // ===== MOUSE DOWN =====
   const handleMouseDown = (day, slotIdx, e) => {
@@ -545,10 +576,10 @@ export default function ClassScheduler({ theme }) {
               </thead>
               <tbody>
                 {TIME_SLOTS.map((time, tIdx) => (
-                  <tr key={tIdx} style={{ height:CELL_HEIGHT }}>
+                  <tr key={tIdx} data-slot-row={tIdx} style={{ height:CELL_HEIGHT }}>
                     {/* Time label — only show on the hour */}
                     <td style={{ padding:"4px 8px", fontSize:11, color:"#94a3b8", borderBottom:isLight?"1px solid #e2e8f0":"1px solid rgba(255,255,255,0.05)", borderRight:isLight?"1px solid #e2e8f0":"1px solid rgba(255,255,255,0.08)", textAlign:"right", whiteSpace:"nowrap", fontWeight:600, width:80, verticalAlign:"top", boxSizing:"border-box" }}>
-                      {tIdx % 2 === 0 ? time : ""}
+                      {time}
                     </td>
                     {DAYS.map((_, dIdx) => {
                       // Block starting at this slot
@@ -572,8 +603,8 @@ export default function ClassScheduler({ theme }) {
                         const endTime = slotToTimeString(Math.min(block.endSlot, TIME_SLOTS.length - 1));
                         return (
                           <td key={dIdx} rowSpan={rowSpan}
-                            style={{ padding:3, border:isLight?"1px solid #e2e8f0":"1px solid rgba(255,255,255,0.05)", borderRight:dIdx === 6 ? "none" : (isLight?"1px solid #e2e8f0":"1px solid rgba(255,255,255,0.05)"), verticalAlign:"top", position:"relative", height: rowSpan * CELL_HEIGHT }}>
-                            <div style={{ background:`${color}22`, border:`1.5px solid ${color}88`, borderLeft:`4px solid ${color}`, borderRadius:6, padding:"5px 7px", height: rowSpan * CELL_HEIGHT - 6, boxSizing:"border-box", position:"relative", overflow:"hidden" }}>
+                            style={{ padding:0, border:isLight?"1px solid #e2e8f0":"1px solid rgba(255,255,255,0.05)", borderRight:dIdx === 6 ? "none" : (isLight?"1px solid #e2e8f0":"1px solid rgba(255,255,255,0.05)"), verticalAlign:"top", position:"relative", height: rowSpan * CELL_HEIGHT }}>
+                            <div style={{ background:`${color}22`, border:`1.5px solid ${color}88`, borderLeft:`4px solid ${color}`, borderRadius:6, padding:0, height: "100%", width: "100%", boxSizing:"border-box", position:"relative", overflow:"hidden" }}>
                               <div style={{ fontSize:11, fontWeight:700, color, lineHeight:1.3 }}>{block.subject.title}</div>
                               <div style={{ fontSize:10, color:isLight?"#475569":"#cbd5e1", marginTop:2 }}>{block.instructor.fullname}</div>
                               {block.room?.room_code && <div style={{ fontSize:10, color:isLight?"#64748b":"#94a3b8", marginTop:1 }}>{block.room.room_code}</div>}
@@ -584,7 +615,7 @@ export default function ClassScheduler({ theme }) {
                               {/* RESIZE HANDLE — bottom edge */}
                               <div
                                 onMouseDown={(e) => handleResizeStart(e, block)}
-                                style={{ position:"absolute", bottom:0, left:0, right:0, height:8, cursor:"s-resize", display:"flex", alignItems:"center", justifyContent:"center", borderRadius:"0 0 6px 6px", background:"rgba(0,0,0,0.15)" }}
+                                style={{ position:"absolute", bottom:0, left:0, right:0, height:8, cursor:"ns-resize", display:"flex", alignItems:"center", justifyContent:"center", borderRadius:"0 0 6px 6px", background:"rgba(0,0,0,0.15)" }}
                               >
                                 <div style={{ width:24, height:3, borderRadius:2, background:"rgba(255,255,255,0.5)" }} />
                               </div>
