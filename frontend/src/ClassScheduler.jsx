@@ -80,6 +80,11 @@ export default function ClassScheduler({ theme }) {
   const [lockedBy, setLockedBy] = useState("");
   const [lockChecked, setLockChecked] = useState(false);
 
+  // Room Availability overlay
+  const [selectedRoomAvail, setSelectedRoomAvail] = useState(null);
+  const [allRoomAvailData, setAllRoomAvailData] = useState([]);
+  const [roomAvailLoading, setRoomAvailLoading] = useState(false);
+
   // Refs - avoid stale closures
   const subjectColors = useRef({});
   const colorIdx = useRef(0);
@@ -123,6 +128,7 @@ export default function ClassScheduler({ theme }) {
     fetchSchedules();
     fetchSections();
     fetchRooms();
+    fetchRoomAvailability();
     acquireLock();
     window.addEventListener("beforeunload", releaseLock);
     return () => { releaseLock(); window.removeEventListener("beforeunload", releaseLock); };
@@ -201,30 +207,24 @@ export default function ClassScheduler({ theme }) {
       }
     };
 
-    // Global mousemove: track resize by calculating slot from Y position on the table
+    window.addEventListener("mouseup", onMouseUp);
+
+    // Global mousemove: find closest row by Y position so resize works even
+    // when the mouse is over rowSpan'd cells that don't fire onMouseEnter
     const onMouseMove = (e) => {
       if (!resizeRef.current) return;
-      // Find all time-slot rows by data attribute
       const rows = document.querySelectorAll("[data-slot-row]");
       if (!rows.length) return;
-      let closestSlot = -1;
-      let closestDist = Infinity;
+      let closestSlot = -1, closestDist = Infinity;
       rows.forEach(row => {
         const rect = row.getBoundingClientRect();
-        const rowCenter = rect.top + rect.height / 2;
-        const dist = Math.abs(e.clientY - rowCenter);
-        if (dist < closestDist) {
-          closestDist = dist;
-          closestSlot = parseInt(row.dataset.slotRow);
-        }
+        const dist = Math.abs(e.clientY - (rect.top + rect.height / 2));
+        if (dist < closestDist) { closestDist = dist; closestSlot = parseInt(row.dataset.slotRow); }
       });
-      if (closestSlot !== -1) {
-        handleResizeMoveRef.current(resizeRef.current.day, closestSlot);
-      }
+      if (closestSlot !== -1) handleResizeMoveRef.current(resizeRef.current.day, closestSlot);
     };
-
-    window.addEventListener("mouseup", onMouseUp);
     window.addEventListener("mousemove", onMouseMove);
+
     return () => {
       window.removeEventListener("mouseup", onMouseUp);
       window.removeEventListener("mousemove", onMouseMove);
@@ -245,6 +245,17 @@ export default function ClassScheduler({ theme }) {
   const fetchRooms = async () => {
     const data = await fetch(`${API}/rooms`).then(r => r.json());
     setRooms(data);
+  };
+
+  const fetchRoomAvailability = async () => {
+    setRoomAvailLoading(true);
+    try {
+      const data = await fetch(`${API}/schedules/room-availability`).then(r => r.json());
+      setAllRoomAvailData(data);
+    } catch (e) {
+      console.error("Failed to fetch room availability", e);
+    }
+    setRoomAvailLoading(false);
   };
 
   const fetchSections = async () => {
@@ -384,9 +395,6 @@ export default function ClassScheduler({ theme }) {
   const saveScheduleRef = useRef(null);
   saveScheduleRef.current = saveSchedule;
 
-  // Keep ref to latest handleResizeMove — used by global mousemove listener
-  const handleResizeMoveRef = useRef(null);
-
   // ===== RESIZE HANDLERS =====
   const handleResizeStart = (e, block) => {
     e.preventDefault();
@@ -403,24 +411,22 @@ export default function ClassScheduler({ theme }) {
   const handleResizeMove = (day, slotIdx) => {
     if (!resizeRef.current) return;
     if (day !== resizeRef.current.day) return;
-    // End slot must be at least 1 slot after start (min 30-min block)
+    // Never go below start + 1 (minimum 30-min block)
     const minEnd = resizeRef.current.startSlot + 1;
-    // Allow dragging up (shrinking) or down (expanding), but never below start+1
     const newEnd = Math.max(minEnd, slotIdx + 1);
-    if (newEnd !== resizeRef.current.currentEndSlot) {
-      resizeRef.current.currentEndSlot = newEnd;
-      // Update block in state for live preview
-      setScheduleBlocks(prev => {
-        const updated = prev.map(b =>
-          b.id === resizeRef.current?.blockId
-            ? { ...b, endSlot: newEnd }
-            : b
-        );
-        scheduleBlocksRef.current = updated;
-        return updated;
-      });
-    }
+    if (newEnd === resizeRef.current.currentEndSlot) return;
+    resizeRef.current.currentEndSlot = newEnd;
+    // Capture blockId NOW before setState async delay nulls resizeRef
+    const blockId = resizeRef.current.blockId;
+    setScheduleBlocks(prev => {
+      const updated = prev.map(b => b.id === blockId ? { ...b, endSlot: newEnd } : b);
+      scheduleBlocksRef.current = updated;
+      return updated;
+    });
   };
+
+  // Keep a stable ref so the global mousemove listener always calls the latest version
+  const handleResizeMoveRef = useRef(handleResizeMove);
   handleResizeMoveRef.current = handleResizeMove;
 
   // ===== MOUSE DOWN =====
@@ -513,6 +519,22 @@ export default function ClassScheduler({ theme }) {
     end: Math.max(dragCreate.startSlot, dragCreate.currentSlot) + 1
   } : null;
 
+  const DAY_MAP = { MON:0, TUE:1, WED:2, THU:3, FRI:4, SAT:5, SUN:6 };
+
+  // Convert room-availability API data into slot-based blocks for the selected room
+  const roomAvailBlocks = selectedRoomAvail
+    ? allRoomAvailData
+        .filter(s => s.room_id === selectedRoomAvail.id)
+        .map(s => {
+          const startSlot = timeStringToSlot(s.start_time);
+          const endSlot = timeStringToSlot(s.end_time);
+          const day = DAY_MAP[s.day] ?? -1;
+          if (startSlot === -1 || endSlot === -1 || day === -1) return null;
+          return { ...s, startSlot, endSlot, day };
+        })
+        .filter(Boolean)
+    : [];
+
   if (loading) return (
     <div style={{ minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center", background:"linear-gradient(135deg,#0f0c29,#302b63,#24243e)", color:"#e2e8f0", fontSize:20 }}>Loading...</div>
   );
@@ -524,8 +546,9 @@ export default function ClassScheduler({ theme }) {
       <div style={{ textAlign:"center", marginBottom:20 }}>
         <div style={{ fontSize:11, letterSpacing:6, color:"#94a3b8", textTransform:"uppercase", marginBottom:6 }}>Web Based Class Scheduling for ACLC</div>
         <h1 style={{ margin:"0 0 16px", fontSize:32, fontWeight:800, background:"linear-gradient(90deg,#60a5fa,#a78bfa,#f472b6)", WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent" }}>Class Scheduler</h1>
-        <div style={{ display:"flex", alignItems:"center", justifyContent:"center" }}>
-          <div style={{ display:"flex", alignItems:"center", gap:10, background:isLight?"white":"rgba(255,255,255,0.05)", border:isLight?"1px solid #e2e8f0":"1px solid rgba(255,255,255,0.1)", borderRadius:12, padding:"10px 16px", width:400 }}>
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:12, flexWrap:"wrap" }}>
+          {/* Section selector */}
+          <div style={{ display:"flex", alignItems:"center", gap:10, background:isLight?"white":"rgba(255,255,255,0.05)", border:isLight?"1px solid #e2e8f0":"1px solid rgba(255,255,255,0.1)", borderRadius:12, padding:"10px 16px", minWidth:320 }}>
             <span style={{ fontSize:16 }}>🏫</span>
             <select value={selectedSection?.id||""} onChange={e => {
               const sec = sections.find(s => s.id === parseInt(e.target.value));
@@ -538,8 +561,42 @@ export default function ClassScheduler({ theme }) {
               <option value="">Select a section...</option>
               {sections.map(s => <option key={s.id} value={s.id} style={{ background:isLight?"white":"#1e293b" }}>{s.section_name}</option>)}
             </select>
-            {selectedSection && <span style={{ fontSize:10, fontWeight:700, color:"#60a5fa", background:"rgba(96,165,250,0.15)", padding:"3px 8px", borderRadius:20, border:"1px solid rgba(96,165,250,0.3)" }}>{selectedSection.section_name}</span>}
+            {selectedSection && <span style={{ fontSize:10, fontWeight:700, color:"#60a5fa", background:"rgba(96,165,250,0.15)", padding:"3px 8px", borderRadius:20, border:"1px solid rgba(96,165,250,0.3)", whiteSpace:"nowrap" }}>{selectedSection.section_name}</span>}
           </div>
+
+          {/* Room Availability dropdown */}
+          <div style={{ display:"flex", alignItems:"center", gap:8, background:isLight?"white":"rgba(255,255,255,0.05)", border: selectedRoomAvail ? "1px solid rgba(16,185,129,0.6)" : (isLight?"1px solid #e2e8f0":"1px solid rgba(255,255,255,0.1)"), borderRadius:12, padding:"10px 16px", minWidth:220, boxShadow: selectedRoomAvail ? "0 0 0 3px rgba(16,185,129,0.15)" : "none", transition:"all 0.2s" }}>
+            <span style={{ fontSize:15 }}>🚪</span>
+            <select
+              value={selectedRoomAvail?.id || ""}
+              onChange={e => {
+                if (!e.target.value) { setSelectedRoomAvail(null); return; }
+                const room = rooms.find(r => r.id === parseInt(e.target.value));
+                setSelectedRoomAvail(room || null);
+              }}
+              style={{ flex:1, background:"transparent", border:"none", color: selectedRoomAvail ? (isLight?"#059669":"#6ee7b7") : (isLight?"#64748b":"#94a3b8"), fontSize:13, outline:"none", fontFamily:"'Segoe UI',sans-serif", cursor:"pointer", fontWeight: selectedRoomAvail ? 700 : 400 }}
+            >
+              <option value="">Room availability...</option>
+              {rooms.map(r => (
+                <option key={r.id} value={r.id} style={{ background:isLight?"white":"#1e293b", color:isLight?"#1e293b":"#e2e8f0" }}>
+                  {r.room_code}
+                </option>
+              ))}
+            </select>
+            {selectedRoomAvail && (
+              <button onClick={() => setSelectedRoomAvail(null)} style={{ background:"rgba(16,185,129,0.2)", border:"none", color:"#6ee7b7", borderRadius:6, width:20, height:20, cursor:"pointer", fontSize:11, display:"flex", alignItems:"center", justifyContent:"center", padding:0, flexShrink:0 }}>✕</button>
+            )}
+          </div>
+
+          {/* Legend when room is selected */}
+          {selectedRoomAvail && (
+            <div style={{ display:"flex", alignItems:"center", gap:8, background:"rgba(16,185,129,0.1)", border:"1px solid rgba(16,185,129,0.3)", borderRadius:10, padding:"8px 14px" }}>
+              <div style={{ width:12, height:12, borderRadius:3, background:"rgba(16,185,129,0.35)", border:"2px solid rgba(16,185,129,0.7)", flexShrink:0 }} />
+              <span style={{ fontSize:11, color:isLight?"#059669":"#6ee7b7", fontWeight:600 }}>
+                {roomAvailLoading ? "Loading..." : `${roomAvailBlocks.length} scheduled block${roomAvailBlocks.length !== 1 ? "s" : ""} in ${selectedRoomAvail.room_code}`}
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -593,6 +650,14 @@ export default function ClassScheduler({ theme }) {
                         />
                       );
 
+                      // Room availability ghost block starting at this cell
+                      const ghostBlock = selectedRoomAvail
+                        ? roomAvailBlocks.find(b => b.day === dIdx && b.startSlot === tIdx)
+                        : null;
+                      const insideGhost = selectedRoomAvail
+                        ? roomAvailBlocks.find(b => b.day === dIdx && b.startSlot < tIdx && b.endSlot > tIdx)
+                        : null;
+
                       const inPreview = dragPreview && dragPreview.day === dIdx && tIdx >= dragPreview.start && tIdx < dragPreview.end;
                       const isPreviewStart = dragPreview && dragPreview.day === dIdx && tIdx === dragPreview.start;
 
@@ -623,6 +688,34 @@ export default function ClassScheduler({ theme }) {
                           </td>
                         );
                       }
+
+                      // Empty cell — may show ghost block starting here
+                      if (ghostBlock && !insideGhost) {
+                        const rowSpan = Math.max(1, ghostBlock.endSlot - ghostBlock.startSlot);
+                        const startTime = slotToTimeString(ghostBlock.startSlot);
+                        const endTime = slotToTimeString(Math.min(ghostBlock.endSlot, TIME_SLOTS.length - 1));
+                        return (
+                          <td key={dIdx} rowSpan={rowSpan}
+                            onMouseDown={(e) => handleMouseDown(dIdx, tIdx, e)}
+                            onMouseEnter={() => { handleMouseEnter(dIdx, tIdx); handleResizeMove(dIdx, tIdx); }}
+                            style={{ padding:0, border:isLight?"1px solid #e2e8f0":"1px solid rgba(255,255,255,0.05)", borderRight:dIdx === 6 ? "none" : (isLight?"1px solid #e2e8f0":"1px solid rgba(255,255,255,0.05)"), verticalAlign:"top", position:"relative", height: rowSpan * CELL_HEIGHT }}>
+                            <div style={{ background:"rgba(16,185,129,0.08)", border:"1.5px solid rgba(16,185,129,0.3)", borderLeft:"4px solid rgba(16,185,129,0.5)", borderRadius:6, height:"100%", width:"100%", boxSizing:"border-box", position:"relative", overflow:"hidden", opacity:0.6, padding:"4px 6px" }}>
+                              <div style={{ fontSize:10, fontWeight:700, color:"#6ee7b7", lineHeight:1.3, overflow:"hidden", whiteSpace:"nowrap", textOverflow:"ellipsis" }}>{ghostBlock.subject_title}</div>
+                              <div style={{ fontSize:9, color:"#94a3b8", marginTop:1, overflow:"hidden", whiteSpace:"nowrap", textOverflow:"ellipsis" }}>{ghostBlock.section_name}</div>
+                              <div style={{ fontSize:9, color:"#94a3b8", marginTop:1, overflow:"hidden", whiteSpace:"nowrap", textOverflow:"ellipsis" }}>{ghostBlock.instructor_name}</div>
+                              <div style={{ fontSize:8, color:"rgba(110,231,183,0.7)", marginTop:2 }}>{formatTime(startTime)} – {formatTime(endTime)}</div>
+                            </div>
+                          </td>
+                        );
+                      }
+
+                      // Skip cells inside a ghost block (rowSpan covers them)
+                      if (insideGhost && !block) return (
+                        <td key={dIdx}
+                          onMouseEnter={() => { handleMouseEnter(dIdx, tIdx); handleResizeMove(dIdx, tIdx); }}
+                          style={{ padding:0, border:isLight?"1px solid #e2e8f0":"1px solid rgba(255,255,255,0.05)", borderRight:dIdx === 6 ? "none" : (isLight?"1px solid #e2e8f0":"1px solid rgba(255,255,255,0.05)"), height:CELL_HEIGHT, background:"transparent" }}
+                        />
+                      );
 
                       return (
                         <td key={dIdx}

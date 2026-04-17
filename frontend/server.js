@@ -327,6 +327,26 @@ app.delete('/api/schedules/:id', (req, res) => {
   res.json({ success: true })
 })
 
+// ===== ROOM AVAILABILITY ROUTE =====
+app.get('/api/schedules/room-availability', (req, res) => {
+  const schedules = db.prepare(`
+    SELECT 
+      s.id, s.day, s.start_time, s.end_time, s.class_type,
+      sub.subject_name as subject_title,
+      i.full_name as instructor_name,
+      r.id as room_id, r.room_code,
+      sc.id as section_id, sc.section_name
+    FROM schedules s
+    JOIN subjects sub ON s.subject_id = sub.id
+    JOIN instructors i ON s.instructor_id = i.id
+    LEFT JOIN rooms r ON s.room_id = r.id
+    LEFT JOIN sections sc ON s.section_id = sc.id
+    WHERE s.is_draft = 0 AND r.id IS NOT NULL
+    ORDER BY r.room_code, s.day, s.start_time
+  `).all()
+  res.json(schedules)
+})
+
 app.get('/api/schedules/section/:section_id', (req, res) => {
   const schedules = db.prepare(`
     SELECT 
